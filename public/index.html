@@ -233,8 +233,32 @@
       border-radius: 10px;
       overflow: hidden;
       aspect-ratio: 16/9;
+      position: relative;
     }
     video { width: 100%; height: 100%; display: block; }
+
+    .fs-overlay-btn {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.55);
+      color: rgba(255,255,255,0.75);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      font-size: 13px;
+      width: 32px; height: 32px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .video-wrap:hover .fs-overlay-btn { opacity: 1; }
+    .video-wrap:fullscreen .fs-overlay-btn,
+    .video-wrap:-webkit-full-screen .fs-overlay-btn { opacity: 0.4; }
+    .video-wrap:fullscreen:hover .fs-overlay-btn,
+    .video-wrap:-webkit-full-screen:hover .fs-overlay-btn { opacity: 1; }
+    .video-wrap:fullscreen { aspect-ratio: unset; width: 100%; height: 100%; }
 
     /* ── Panel (timeline + controls) ─────────────────────────────────────── */
     .panel {
@@ -334,7 +358,14 @@
       transition: filter 0.1s, background 0.15s, color 0.15s;
     }
     .btn-loop.on { background: #7c6fff30; color: #7c6fff; border-color: #7c6fff60; }
-    .btn-in:hover, .btn-out:hover, .btn-loop:hover { filter: brightness(1.2); }
+    .btn-fs {
+      background: #1c1c2e; color: #555; border: 1px solid #2a2a40;
+      font-size: 12px; padding: 7px 13px; border-radius: 7px;
+      cursor: pointer; font-weight: 600;
+      transition: filter 0.1s, background 0.15s, color 0.15s;
+    }
+    .btn-fs.on { background: #06b6d420; color: #06b6d4; border-color: #06b6d440; }
+    .btn-in:hover, .btn-out:hover, .btn-loop:hover, .btn-fs:hover { filter: brightness(1.2); }
 
     /* ── Speed buttons ───────────────────────────────────────────────────── */
     .speed-row {
@@ -506,8 +537,9 @@
     <div class="library-list" id="libraryList" style="display:none"></div>
   </div>
 
-  <div class="video-wrap">
+  <div class="video-wrap" id="videoWrap">
     <video id="player" preload="metadata"></video>
+    <button class="fs-overlay-btn" id="fsOverlayBtn" onclick="toggleFullscreen()" title="Toggle fullscreen (F)">⛶</button>
   </div>
 
   <div class="panel" id="controlPanel" style="display:none">
@@ -524,6 +556,7 @@
       <button class="btn-in"  onclick="setIn()">SET IN &nbsp;<kbd>I</kbd></button>
       <button class="btn-out" onclick="setOut()">SET OUT <kbd>O</kbd></button>
       <button class="btn-loop" id="loopBtn" onclick="toggleLoop()">⟳ LOOP</button>
+      <button class="btn-fs" id="fsBtn" onclick="toggleFullscreen()">⛶ FULL <kbd>F</kbd></button>
     </div>
     <!-- Speed controls -->
     <div class="speed-row">
@@ -540,6 +573,7 @@
       <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
       <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
       <span><kbd>L</kbd> loop</span>
+      <span><kbd>F</kbd> fullscreen</span>
     </div>
   </div>
 
@@ -978,6 +1012,7 @@
       case ',': video.currentTime = Math.max(0, video.currentTime - 0.1); break;
       case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
       case 'l': toggleLoop(); break;
+      case 'f': toggleFullscreen(); break;
     }
   });
 
@@ -992,6 +1027,26 @@
 
   function setStatus(msg) {
     document.getElementById('status').textContent = msg;
+  }
+
+  // ── Fullscreen ────────────────────────────────────────────────────────────
+  function toggleFullscreen() {
+    const wrap = document.getElementById('videoWrap');
+    if (!document.fullscreenElement) {
+      (wrap.requestFullscreen || wrap.webkitRequestFullscreen).call(wrap);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+  }
+
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  function onFsChange() {
+    const inFs = !!document.fullscreenElement;
+    const fsBtn = document.getElementById('fsBtn');
+    fsBtn.classList.toggle('on', inFs);
+    fsBtn.innerHTML = inFs ? '⛶ EXIT <kbd>F</kbd>' : '⛶ FULL <kbd>F</kbd>';
   }
 </script>
 </body>

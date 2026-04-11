@@ -96,7 +96,7 @@ function isCookieError(err) {
 }
 
 async function fetchInfo(url, extraOpts = {}) {
-    const base = { dumpSingleJson: true, noCheckCertificate: true, noWarnings: true, format: 'best' };
+    const base = { dumpSingleJson: true, noCheckCertificate: true, noWarnings: true };
 
     // 1. cookies.txt
     if (fs.existsSync(COOKIES_FILE)) {
