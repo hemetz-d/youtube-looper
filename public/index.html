@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Video Looper</title>
+    <style>
+        body {
+            background: #111;
+            color: #0f0;
+            font-family: monospace;
+            text-align: center;
+            padding: 50px;
+        }
+
+        input,
+        button {
+            padding: 15px;
+            font-size: 18px;
+            margin: 10px;
+        }
+
+        input {
+            width: 70%;
+            background: #222;
+            color: #0f0;
+            border: 2px solid #0f0;
+        }
+
+        button {
+            background: #f00;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #ff3333;
+        }
+
+        video {
+            width: 80%;
+            max-width: 900px;
+            margin: 30px auto;
+            display: block;
+            background: #000;
+        }
+
+        .segment {
+            margin: 10px;
+            padding: 10px;
+            background: #222;
+            display: inline-block;
+        }
+
+        #status,
+        #segments {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Video Looper</h1>
+    <input type="text" id="url" placeholder="Paste YouTube link here..." />
+    <button onclick="download()">DOWNLOAD</button>
+
+    <div id="status"></div>
+
+    <video id="player" controls></video>
+
+    <div id="segments"></div>
+
+    <script>
+        let currentFile = '';
+
+        async function download() {
+            const url = document.getElementById('url').value;
+            const status = document.getElementById('status');
+            status.innerHTML = "Downloading...";
+
+            const res = await fetch('/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                currentFile = data.file;
+                status.innerHTML = `✅ Downloaded: ${data.title}`;
+                document.getElementById('player').src = currentFile;
+            } else {
+                status.innerHTML = "❌ Download failed";
+            }
+        }
+
+        function addSegment() {
+            const video = document.getElementById('player');
+            const start = Math.floor(video.currentTime);
+            const end = Math.min(Math.floor(start + 10), Math.floor(video.duration));
+
+            const div = document.createElement('div');
+            div.className = 'segment';
+            div.innerHTML = `
+                Segment: ${start}s - ${end}s 
+                <button onclick="playSegment(${start},${end})">Play</button>
+                <button onclick="this.parentElement.remove()">Remove</button>
+            `;
+            document.getElementById('segments').appendChild(div);
+        }
+    </script>
+</body>
+
+</html>
