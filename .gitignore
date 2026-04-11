@@ -11,9 +11,7 @@ yarn-error.log*
 public/videos/*
 
 # Persisted app data (library index, segments, cookies)
-data/cookies.txt
-library.json
-segments.json
+data/
 
 # Logs
 logs/
