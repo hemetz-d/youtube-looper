@@ -2,8 +2,10 @@
   "name": "youtube-looper",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
+    "stop": "node -e \"require('fs').readFile('server.pid','utf8',(e,d)=>{if(e)return console.log('No server.pid — is it running?');process.kill(+d)})\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,7 +14,6 @@
   "type": "commonjs",
   "dependencies": {
     "express": "^5.2.1",
-    "youtube-dl-exec": "^3.1.4",
-    "yt-dlp-exec": "^1.0.2"
+    "youtube-dl-exec": "^3.1.4"
   }
 }

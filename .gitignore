@@ -10,6 +10,11 @@ yarn-error.log*
 # Downloaded videos
 public/videos/*
 
+# Persisted app data (library index, segments, cookies)
+data/cookies.txt
+library.json
+segments.json
+
 # Logs
 logs/
 *.log
@@ -32,3 +37,5 @@ coverage/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+.claude/

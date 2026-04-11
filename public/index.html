@@ -1,115 +1,998 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>Video Looper</title>
-    <style>
-        body {
-            background: #111;
-            color: #0f0;
-            font-family: monospace;
-            text-align: center;
-            padding: 50px;
-        }
+  <meta charset="UTF-8">
+  <title>Video Looper</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        input,
-        button {
-            padding: 15px;
-            font-size: 18px;
-            margin: 10px;
-        }
+    body {
+      background: #0a0a10;
+      color: #e0e0ec;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
 
-        input {
-            width: 70%;
-            background: #222;
-            color: #0f0;
-            border: 2px solid #0f0;
-        }
+    .app {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 16px 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
 
-        button {
-            background: #f00;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
 
-        button:hover {
-            background: #ff3333;
-        }
+    /* URL bar */
+    .url-bar { display: flex; gap: 8px; }
 
-        video {
-            width: 80%;
-            max-width: 900px;
-            margin: 30px auto;
-            display: block;
-            background: #000;
-        }
+    input[type=text] {
+      flex: 1;
+      background: #16161f;
+      border: 1px solid #2a2a40;
+      border-radius: 8px;
+      color: #e0e0ec;
+      font-size: 14px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type=text]:focus { border-color: #7c6fff; }
 
-        .segment {
-            margin: 10px;
-            padding: 10px;
-            background: #222;
-            display: inline-block;
-        }
+    .btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.4px;
+      transition: filter 0.1s;
+    }
+    .btn:hover  { filter: brightness(1.15); }
+    .btn:active { filter: brightness(0.85); }
+    .btn-primary { background: #7c6fff; color: #fff; }
+    .btn-danger-ghost {
+      background: transparent; color: #ff4466;
+      border: 1px solid #ff446644;
+      padding: 4px 10px; font-size: 11px; border-radius: 6px;
+      cursor: pointer; transition: filter 0.1s;
+    }
+    .btn-danger-ghost:hover { filter: brightness(1.2); }
 
-        #status,
-        #segments {
-            margin-top: 20px;
-        }
-    </style>
+    /* ── Cookies bar ────────────────────────────────────────────────────── */
+    .cookies-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px dashed #22223a;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .cookies-bar:hover { border-color: #44445a; background: #12121c; }
+    .cookies-bar.active { border-style: solid; border-color: #22c55e44; background: #22c55e08; cursor: default; }
+    .cookies-bar.dragover { border-color: #7c6fff; background: #7c6fff10; }
+
+    .cookies-icon { font-size: 14px; }
+    .cookies-text { flex: 1; color: #44445a; }
+    .cookies-bar.active .cookies-text { color: #22c55e; }
+
+    .cookies-remove {
+      background: transparent; border: none;
+      color: #44445a; font-size: 13px; cursor: pointer;
+      padding: 2px 4px; border-radius: 4px;
+      transition: color 0.1s, background 0.1s;
+      line-height: 1;
+    }
+    .cookies-remove:hover { color: #ff4466; background: #ff446618; }
+
+    /* ── Progress bar ────────────────────────────────────────────────────── */
+    .progress-wrap {
+      height: 4px;
+      background: #1c1c2e;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: -6px; /* tighten gap with url bar */
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #7c6fff;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+
+    .progress-label {
+      font-size: 12px;
+      color: #555;
+      font-variant-numeric: tabular-nums;
+      min-height: 16px;
+    }
+
+    #status { font-size: 13px; color: #666; min-height: 16px; }
+
+    /* ── Library ─────────────────────────────────────────────────────────── */
+    .library-panel {
+      background: #12121c;
+      border: 1px solid #22223a;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .library-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .library-header.open { border-bottom-color: #1e1e30; }
+    .library-header:hover { background: #16161f; }
+
+    .library-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #44445a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .library-count {
+      background: #22223a;
+      color: #6666aa;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+    }
+
+    .library-chevron {
+      font-size: 10px;
+      color: #33335a;
+      transition: transform 0.2s;
+    }
+    .library-chevron.open { transform: rotate(180deg); }
+
+    .library-list {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .lib-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #1a1a28;
+      transition: background 0.1s;
+    }
+    .lib-item:last-child { border-bottom: none; }
+    .lib-item:hover { background: #1c1c2e; }
+    .lib-item.active { background: #7c6fff14; }
+
+    .lib-icon { font-size: 12px; color: #44445a; flex-shrink: 0; }
+    .lib-item.active .lib-icon { color: #7c6fff; }
+
+    .lib-title {
+      flex: 1;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #ccc;
+    }
+    .lib-item.active .lib-title { color: #e0e0ec; }
+
+    .lib-dur {
+      font-size: 11px;
+      color: #33335a;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    /* shared style for download + delete icon buttons in library */
+    .lib-action {
+      font-size: 13px;
+      color: #33335a;
+      text-decoration: none;
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 5px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+    }
+    .lib-action:hover { background: #22223a; color: #aaa; }
+    .lib-action.del:hover { background: #ff446622; color: #ff4466; }
+
+    /* ── Video ──────────────────────────────────────────────────────────── */
+    .video-wrap {
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 16/9;
+    }
+    video { width: 100%; height: 100%; display: block; }
+
+    /* ── Panel (timeline + controls) ─────────────────────────────────────── */
+    .panel {
+      background: #12121c;
+      border: 1px solid #22223a;
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .timeline {
+      position: relative;
+      height: 44px;
+      background: #1c1c2e;
+      border-radius: 6px;
+      cursor: pointer;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .playhead {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #fff;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .in-marker {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #facc15;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .in-label {
+      position: absolute;
+      top: 3px;
+      font-size: 9px;
+      font-weight: 800;
+      color: #facc15;
+      pointer-events: none;
+      z-index: 6;
+      padding-left: 3px;
+    }
+
+    .seg-bar {
+      position: absolute;
+      top: 0; bottom: 0;
+      pointer-events: none;
+    }
+
+    .time-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #3a3a5a;
+      font-variant-numeric: tabular-nums;
+      margin-top: -4px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .time-big {
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      color: #aaa;
+      min-width: 130px;
+    }
+
+    .flex1 { flex: 1; }
+
+    .btn-in {
+      background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40;
+      font-size: 12px; padding: 7px 13px; border-radius: 7px;
+      cursor: pointer; font-weight: 600; transition: filter 0.1s;
+    }
+    .btn-out {
+      background: #f9731620; color: #f97316; border: 1px solid #f9731640;
+      font-size: 12px; padding: 7px 13px; border-radius: 7px;
+      cursor: pointer; font-weight: 600; transition: filter 0.1s;
+    }
+    .btn-loop {
+      background: #1c1c2e; color: #555; border: 1px solid #2a2a40;
+      font-size: 12px; padding: 7px 13px; border-radius: 7px;
+      cursor: pointer; font-weight: 600;
+      transition: filter 0.1s, background 0.15s, color 0.15s;
+    }
+    .btn-loop.on { background: #7c6fff30; color: #7c6fff; border-color: #7c6fff60; }
+    .btn-in:hover, .btn-out:hover, .btn-loop:hover { filter: brightness(1.2); }
+
+    /* ── Speed buttons ───────────────────────────────────────────────────── */
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .speed-label {
+      font-size: 11px;
+      color: #3a3a5a;
+      margin-right: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .speed-btn {
+      background: #1c1c2e;
+      color: #444;
+      border: 1px solid #2a2a3a;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s;
+    }
+    .speed-btn:hover { color: #aaa; background: #22223a; }
+    .speed-btn.active { background: #7c6fff30; color: #7c6fff; border-color: #7c6fff60; }
+
+    .shortcuts {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: #333;
+    }
+
+    kbd {
+      background: #1c1c2e;
+      border: 1px solid #2a2a40;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 10px;
+      font-family: monospace;
+      color: #555;
+    }
+
+    /* ── Segments panel ──────────────────────────────────────────────────── */
+    .seg-panel {
+      background: #12121c;
+      border: 1px solid #22223a;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .seg-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid #1e1e30;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #3a3a5a;
+    }
+
+    .seg-empty {
+      padding: 28px;
+      text-align: center;
+      font-size: 13px;
+      color: #2a2a40;
+    }
+
+    .seg-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #1a1a28;
+      transition: background 0.1s;
+    }
+    .seg-item:last-child { border-bottom: none; }
+    .seg-item:hover { background: #16161f; }
+    .seg-item.playing { background: #7c6fff12; }
+
+    .seg-dot {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .seg-info {
+      flex: 1;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .seg-dur { font-size: 11px; color: #3a3a5a; }
+
+    .seg-btns { display: flex; gap: 6px; }
+
+    .icon-btn {
+      width: 28px; height: 28px;
+      border: none; border-radius: 6px;
+      cursor: pointer; font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+      transition: filter 0.1s;
+    }
+    .icon-btn:hover { filter: brightness(1.3); }
+
+    /* save indicator */
+    .save-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      opacity: 0;
+      transition: opacity 0.4s;
+      flex-shrink: 0;
+    }
+    .save-dot.visible { opacity: 1; }
+  </style>
 </head>
-
 <body>
+<div class="app">
+
+  <header>
+    <span style="font-size:20px;line-height:1">▶</span>
     <h1>Video Looper</h1>
-    <input type="text" id="url" placeholder="Paste YouTube link here..." />
-    <button onclick="download()">DOWNLOAD</button>
+  </header>
 
-    <div id="status"></div>
+  <div class="url-bar">
+    <input type="text" id="urlInput" placeholder="Paste a YouTube URL…" />
+    <button class="btn btn-primary" id="loadBtn" onclick="loadVideo()">LOAD</button>
+  </div>
 
-    <video id="player" controls></video>
+  <!-- Cookies -->
+  <input type="file" id="cookiesInput" accept=".txt" style="display:none" onchange="cookiesFileChosen(this)">
+  <div class="cookies-bar" id="cookiesBar" onclick="document.getElementById('cookiesInput').click()"
+       ondragover="cookiesDragOver(event)" ondragleave="cookiesDragLeave(event)" ondrop="cookiesDrop(event)">
+    <span class="cookies-icon">🍪</span>
+    <span class="cookies-text" id="cookiesText">No cookies.txt — click or drop file to enable downloads</span>
+    <button class="cookies-remove" id="cookiesRemove" style="display:none"
+            onclick="event.stopPropagation(); removeCookies()" title="Remove cookies.txt">✕</button>
+  </div>
 
-    <div id="segments"></div>
+  <!-- Download progress -->
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+  <div class="progress-label" id="progressLabel"></div>
 
-    <script>
-        let currentFile = '';
+  <div id="status"></div>
 
-        async function download() {
-            const url = document.getElementById('url').value;
-            const status = document.getElementById('status');
-            status.innerHTML = "Downloading...";
+  <!-- Library -->
+  <div class="library-panel" id="libraryPanel" style="display:none">
+    <div class="library-header" id="libraryHeader" onclick="toggleLibrary()">
+      <span class="library-title">
+        Library
+        <span class="library-count" id="libraryCount">0</span>
+      </span>
+      <span class="library-chevron" id="libraryChevron">▼</span>
+    </div>
+    <div class="library-list" id="libraryList" style="display:none"></div>
+  </div>
 
-            const res = await fetch('/download', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
-            });
+  <div class="video-wrap">
+    <video id="player" preload="metadata"></video>
+  </div>
 
-            const data = await res.json();
+  <div class="panel" id="controlPanel" style="display:none">
+    <div class="timeline" id="timeline">
+      <div class="playhead" id="playhead" style="left:0"></div>
+    </div>
+    <div class="time-row">
+      <span id="tLeft">0:00</span>
+      <span id="tRight">0:00</span>
+    </div>
+    <div class="controls">
+      <span class="time-big" id="timeBig">0:00.0 / 0:00</span>
+      <span class="flex1"></span>
+      <button class="btn-in"  onclick="setIn()">SET IN &nbsp;<kbd>I</kbd></button>
+      <button class="btn-out" onclick="setOut()">SET OUT <kbd>O</kbd></button>
+      <button class="btn-loop" id="loopBtn" onclick="toggleLoop()">⟳ LOOP</button>
+    </div>
+    <!-- Speed controls -->
+    <div class="speed-row">
+      <span class="speed-label">Speed</span>
+      <button class="speed-btn" onclick="setSpeed(0.5)">0.5×</button>
+      <button class="speed-btn" onclick="setSpeed(0.75)">0.75×</button>
+      <button class="speed-btn active" id="speed-1" onclick="setSpeed(1)">1×</button>
+      <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
+      <button class="speed-btn" onclick="setSpeed(1.5)">1.5×</button>
+      <button class="speed-btn" onclick="setSpeed(2)">2×</button>
+    </div>
+    <div class="shortcuts">
+      <span><kbd>Space</kbd> play/pause</span>
+      <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
+      <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
+      <span><kbd>L</kbd> loop</span>
+    </div>
+  </div>
 
-            if (data.success) {
-                currentFile = data.file;
-                status.innerHTML = `✅ Downloaded: ${data.title}`;
-                document.getElementById('player').src = currentFile;
-            } else {
-                status.innerHTML = "❌ Download failed";
-            }
+  <div class="seg-panel" id="segPanel" style="display:none">
+    <div class="seg-panel-header">
+      <span style="display:flex;align-items:center;gap:8px">
+        Segments
+        <span class="save-dot" id="saveDot" title="Saved"></span>
+      </span>
+      <button class="btn-danger-ghost" onclick="clearAll()">Clear All</button>
+    </div>
+    <div id="segList">
+      <div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>
+    </div>
+  </div>
+
+</div>
+<script>
+  const COLORS  = ['#7c6fff','#22c55e','#f97316','#06b6d4','#ec4899','#facc15','#8b5cf6','#10b981'];
+  const SPEEDS   = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  const video   = document.getElementById('player');
+  const tl      = document.getElementById('timeline');
+  const ph      = document.getElementById('playhead');
+  const timeBig = document.getElementById('timeBig');
+  const loopBtn = document.getElementById('loopBtn');
+
+  let segments        = [];
+  let pendingIn       = null;
+  let looping         = false;
+  let loopIdx         = 0;
+  let currentVideoId  = null;
+  let currentSpeed    = 1;
+  let saveTimer       = null;
+  let libraryOpen     = false;
+  let libraryData     = [];
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadLibrary();
+  checkCookies();
+
+  // ── Cookies ───────────────────────────────────────────────────────────────
+  async function checkCookies() {
+    const { exists } = await fetch('/cookies').then(r => r.json());
+    setCookiesUI(exists);
+  }
+
+  function setCookiesUI(active) {
+    const bar    = document.getElementById('cookiesBar');
+    const text   = document.getElementById('cookiesText');
+    const remove = document.getElementById('cookiesRemove');
+    bar.classList.toggle('active', active);
+    bar.style.cursor = active ? 'default' : 'pointer';
+    text.textContent = active
+      ? 'cookies.txt active'
+      : 'No cookies.txt — click or drop file to enable downloads';
+    remove.style.display = active ? 'inline-block' : 'none';
+  }
+
+  async function uploadCookies(content) {
+    const r = await fetch('/cookies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: content
+    });
+    if ((await r.json()).success) setCookiesUI(true);
+  }
+
+  async function removeCookies() {
+    await fetch('/cookies', { method: 'DELETE' });
+    setCookiesUI(false);
+  }
+
+  function cookiesFileChosen(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => uploadCookies(e.target.result);
+    reader.readAsText(file);
+    input.value = ''; // reset so same file can be re-selected
+  }
+
+  function cookiesDragOver(e) {
+    e.preventDefault();
+    document.getElementById('cookiesBar').classList.add('dragover');
+  }
+
+  function cookiesDragLeave(e) {
+    document.getElementById('cookiesBar').classList.remove('dragover');
+  }
+
+  function cookiesDrop(e) {
+    e.preventDefault();
+    document.getElementById('cookiesBar').classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => uploadCookies(ev.target.result);
+    reader.readAsText(file);
+  }
+
+  // ── rAF loop (playhead + gap-free segment looping) ────────────────────────
+  (function rafLoop() {
+    if (video.duration) {
+      const t   = video.currentTime;
+      const pct = t / video.duration * 100;
+      ph.style.left = pct + '%';
+      timeBig.textContent = `${fmt(t, true)} / ${fmt(video.duration)}`;
+      document.getElementById('tLeft').textContent = fmt(t);
+
+      // Trigger jump 0.1s early to cover seek latency → nearly gap-free
+      if (looping && segments.length && !video.paused) {
+        const seg = segments[loopIdx];
+        if (t >= seg.end - 0.1) {
+          loopIdx = (loopIdx + 1) % segments.length;
+          video.currentTime = segments[loopIdx].start;
         }
+      }
+    }
+    requestAnimationFrame(rafLoop);
+  })();
 
-        function addSegment() {
-            const video = document.getElementById('player');
-            const start = Math.floor(video.currentTime);
-            const end = Math.min(Math.floor(start + 10), Math.floor(video.duration));
+  // ── Library ───────────────────────────────────────────────────────────────
+  async function loadLibrary() {
+    const r = await fetch('/library');
+    libraryData = await r.json();
+    renderLibrary();
+  }
 
-            const div = document.createElement('div');
-            div.className = 'segment';
-            div.innerHTML = `
-                Segment: ${start}s - ${end}s 
-                <button onclick="playSegment(${start},${end})">Play</button>
-                <button onclick="this.parentElement.remove()">Remove</button>
-            `;
-            document.getElementById('segments').appendChild(div);
-        }
-    </script>
+  function renderLibrary() {
+    const panel = document.getElementById('libraryPanel');
+    const list  = document.getElementById('libraryList');
+    const count = document.getElementById('libraryCount');
+
+    if (!libraryData.length) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    count.textContent = libraryData.length;
+
+    list.innerHTML = libraryData.map((v, i) => `
+      <div class="lib-item ${v.id === currentVideoId ? 'active' : ''}" onclick="openFromLibrary(${i})">
+        <span class="lib-icon">${v.id === currentVideoId ? '▶' : '○'}</span>
+        <span class="lib-title">${v.title}</span>
+        ${v.duration ? `<span class="lib-dur">${fmt(v.duration)}</span>` : ''}
+        <a class="lib-action" href="${v.file}" download title="Download file" onclick="event.stopPropagation()">↓</a>
+        <button class="lib-action del" title="Delete video" onclick="event.stopPropagation(); deleteVideo(${i})">✕</button>
+      </div>
+    `).join('');
+  }
+
+  function toggleLibrary() {
+    libraryOpen = !libraryOpen;
+    document.getElementById('libraryList').style.display   = libraryOpen ? 'block' : 'none';
+    document.getElementById('libraryHeader').classList.toggle('open', libraryOpen);
+    document.getElementById('libraryChevron').classList.toggle('open', libraryOpen);
+  }
+
+  async function openFromLibrary(i) {
+    const { id, file, title } = libraryData[i];
+    currentVideoId = id;
+    video.src = file;
+    setStatus('📁 ' + title);
+    renderLibrary();
+
+    const r = await fetch('/segments/' + id);
+    segments = await r.json();
+    looping = false; loopIdx = 0;
+    loopBtn.classList.remove('on');
+    loopBtn.textContent = '⟳ LOOP';
+    resetSpeed();
+    redrawTimeline();
+    redrawList();
+  }
+
+  async function deleteVideo(i) {
+    const { id, title } = libraryData[i];
+    if (!confirm(`Delete "${title}"?\nThis removes the file from disk.`)) return;
+    const r = await fetch('/library/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) { setStatus('❌ Delete failed'); return; }
+
+    // If the deleted video was playing, reset the player
+    if (id === currentVideoId) {
+      video.removeAttribute('src');
+      video.load();
+      currentVideoId = null;
+      segments = []; looping = false; loopIdx = 0;
+      loopBtn.classList.remove('on');
+      loopBtn.textContent = '⟳ LOOP';
+      document.getElementById('controlPanel').style.display = 'none';
+      document.getElementById('segPanel').style.display     = 'none';
+      redrawList();
+      setStatus('🗑 Deleted');
+    }
+    await loadLibrary();
+  }
+
+  // ── Download with SSE progress ────────────────────────────────────────────
+  async function loadVideo() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+
+    const sessionId = Math.random().toString(36).slice(2);
+
+    // Open SSE stream before the POST so we don't miss early events
+    const es = new EventSource('/progress/' + sessionId);
+    const progressFill  = document.getElementById('progressFill');
+    const progressLabel = document.getElementById('progressLabel');
+    const progressWrap  = document.getElementById('progressWrap');
+    const loadBtn       = document.getElementById('loadBtn');
+
+    loadBtn.disabled = true;
+    progressWrap.style.display = 'block';
+    progressFill.style.width   = '0%';
+    progressLabel.textContent  = '';
+    setStatus('⏳ Fetching info…');
+
+    es.addEventListener('message', e => {
+      const { percent, speed, eta } = JSON.parse(e.data);
+      progressFill.style.width  = percent + '%';
+      progressLabel.textContent = `${percent}%  ·  ${speed}  ·  ETA ${eta}`;
+      setStatus('⏳ Downloading…');
+    });
+
+    es.addEventListener('done', e => {
+      es.close();
+      progressWrap.style.display = 'none';
+      progressLabel.textContent  = '';
+      loadBtn.disabled = false;
+
+      const d = JSON.parse(e.data);
+      if (d.success) {
+        currentVideoId = d.id;
+        video.src = d.file;
+        setStatus('✅ ' + d.title);
+        segments = []; looping = false; loopIdx = 0;
+        loopBtn.classList.remove('on');
+        loopBtn.textContent = '⟳ LOOP';
+        resetSpeed();
+        redrawList();
+        loadLibrary();
+      } else {
+        setStatus('❌ ' + d.error);
+      }
+    });
+
+    es.onerror = () => {
+      es.close();
+      progressWrap.style.display = 'none';
+      progressLabel.textContent  = '';
+      loadBtn.disabled = false;
+    };
+
+    // Fire the download request — response is a secondary confirmation;
+    // the real result arrives via the `done` SSE event
+    fetch('/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, sessionId })
+    }).catch(() => {
+      es.close();
+      loadBtn.disabled = false;
+      progressWrap.style.display = 'none';
+      setStatus('❌ Network error');
+    });
+  }
+
+  video.addEventListener('loadedmetadata', () => {
+    document.getElementById('controlPanel').style.display = 'flex';
+    document.getElementById('segPanel').style.display    = 'block';
+    document.getElementById('tRight').textContent = fmt(video.duration);
+    redrawTimeline();
+  });
+
+  // ── Timeline seek ─────────────────────────────────────────────────────────
+  tl.addEventListener('click', e => {
+    if (!video.duration) return;
+    const r = tl.getBoundingClientRect();
+    video.currentTime = ((e.clientX - r.left) / r.width) * video.duration;
+  });
+
+  // ── In / Out ──────────────────────────────────────────────────────────────
+  function setIn() {
+    if (!video.src) return;
+    pendingIn = video.currentTime;
+    redrawTimeline();
+    setStatus(`In → ${fmt(pendingIn, true)}  ·  now press O to set Out`);
+  }
+
+  function setOut() {
+    if (pendingIn === null) { setStatus('Set In point first (I)'); return; }
+    let a = pendingIn, b = video.currentTime;
+    if (b < a) [a, b] = [b, a];
+    if (b - a < 0.15) { setStatus('Segment too short (min 0.15s)'); return; }
+    segments.push({ start: a, end: b, color: COLORS[segments.length % COLORS.length] });
+    pendingIn = null;
+    redrawTimeline();
+    redrawList();
+    scheduleSegmentSave();
+    setStatus(`Segment ${segments.length}: ${fmt(a, true)} → ${fmt(b, true)}  (${fmt(b - a, true)})`);
+  }
+
+  // ── Playback speed ────────────────────────────────────────────────────────
+  function setSpeed(s) {
+    currentSpeed = s;
+    video.playbackRate = s;
+    document.querySelectorAll('.speed-btn').forEach(btn => {
+      btn.classList.toggle('active', parseFloat(btn.textContent) === s);
+    });
+  }
+
+  function resetSpeed() {
+    setSpeed(1);
+  }
+
+  // ── Loop ──────────────────────────────────────────────────────────────────
+  function toggleLoop() {
+    if (!segments.length) { setStatus('Add a segment first'); return; }
+    looping = !looping;
+    loopBtn.classList.toggle('on', looping);
+    loopBtn.textContent = looping ? '⟳ LOOPING' : '⟳ LOOP';
+    if (looping) {
+      loopIdx = 0;
+      video.currentTime = segments[0].start;
+      video.play();
+    }
+  }
+
+  function playSingle(i) {
+    loopIdx = i;
+    video.currentTime = segments[i].start;
+    video.play();
+  }
+
+  function removeSegment(i) {
+    segments.splice(i, 1);
+    if (loopIdx >= segments.length) loopIdx = 0;
+    redrawTimeline();
+    redrawList();
+    scheduleSegmentSave();
+  }
+
+  function clearAll() {
+    segments = []; pendingIn = null; looping = false; loopIdx = 0;
+    loopBtn.classList.remove('on');
+    loopBtn.textContent = '⟳ LOOP';
+    redrawTimeline();
+    redrawList();
+    scheduleSegmentSave();
+  }
+
+  // ── Segment persistence ───────────────────────────────────────────────────
+  function scheduleSegmentSave() {
+    if (!currentVideoId) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveSegments, 600);
+  }
+
+  async function saveSegments() {
+    if (!currentVideoId) return;
+    await fetch('/segments/' + currentVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(segments)
+    });
+    const dot = document.getElementById('saveDot');
+    dot.classList.add('visible');
+    setTimeout(() => dot.classList.remove('visible'), 1200);
+  }
+
+  // ── Render timeline ───────────────────────────────────────────────────────
+  function redrawTimeline() {
+    tl.querySelectorAll('.seg-bar, .in-marker, .in-label').forEach(e => e.remove());
+    const d = video.duration || 1;
+
+    segments.forEach(seg => {
+      const bar = document.createElement('div');
+      bar.className = 'seg-bar';
+      bar.style.cssText = `left:${seg.start/d*100}%;width:${(seg.end-seg.start)/d*100}%;background:${seg.color};opacity:0.45;`;
+      tl.insertBefore(bar, ph);
+    });
+
+    if (pendingIn !== null) {
+      const pct = pendingIn / d * 100;
+      const mk = document.createElement('div');
+      mk.className = 'in-marker';
+      mk.style.left = pct + '%';
+      const lb = document.createElement('div');
+      lb.className = 'in-label';
+      lb.textContent = 'IN';
+      lb.style.left = (pct + 0.3) + '%';
+      tl.appendChild(mk);
+      tl.appendChild(lb);
+    }
+  }
+
+  // ── Render segment list ───────────────────────────────────────────────────
+  function redrawList() {
+    const list = document.getElementById('segList');
+    if (!segments.length) {
+      list.innerHTML = '<div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>';
+      return;
+    }
+    list.innerHTML = segments.map((s, i) => `
+      <div class="seg-item" id="si${i}">
+        <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
+        <div class="seg-info">
+          ${fmt(s.start, true)} → ${fmt(s.end, true)}
+          <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
+        </div>
+        <div class="seg-btns">
+          <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
+          <button class="icon-btn" style="background:#ff446620;color:#ff4466" onclick="removeSegment(${i})" title="Remove">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // ── Keyboard ──────────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    switch (e.key) {
+      case 'i': case '[': setIn();  break;
+      case 'o': case ']': setOut(); break;
+      case ' ':
+        e.preventDefault();
+        video.paused ? video.play() : video.pause();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        video.currentTime = Math.max(0, video.currentTime - 5);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        video.currentTime = Math.min(video.duration, video.currentTime + 5);
+        break;
+      case ',': video.currentTime = Math.max(0, video.currentTime - 0.1); break;
+      case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
+      case 'l': toggleLoop(); break;
+    }
+  });
+
+  // ── Utils ─────────────────────────────────────────────────────────────────
+  function fmt(t, precise = false) {
+    if (!isFinite(t) || t < 0) t = 0;
+    const m  = Math.floor(t / 60);
+    const s  = Math.floor(t % 60);
+    const ds = precise ? '.' + Math.floor((t % 1) * 10) : '';
+    return `${m}:${String(s).padStart(2, '0')}${ds}`;
+  }
+
+  function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+  }
+</script>
 </body>
-
 </html>
