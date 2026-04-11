@@ -143,7 +143,7 @@ app.post('/download', async (req, res) => {
         const outputPath = path.join(videosDir, `${info.id}.%(ext)s`);
         const dlProc = youtubedl(url, {
             output: outputPath,
-            format: 'best',
+            format: 'bestvideo+bestaudio/best',
             noCheckCertificate: true,
             noWarnings: true,
             ...cookiesOpt,
