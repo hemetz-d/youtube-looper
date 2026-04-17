@@ -691,8 +691,8 @@
     }
     .coll-new-name:focus { border-color: #7c6fff; }
 
-    /* dim non-matching items when a collection is active */
-    .seg-item.dim, .lib-item.dim { opacity: 0.32; }
+    /* dim non-matching library entries when a collection is active */
+    .lib-item.dim { opacity: 0.32; }
   </style>
 </head>
 <body>
@@ -1299,7 +1299,6 @@
               <input class="seg-time-input" data-idx="${i}" data-edge="end" aria-label="Segment ${i + 1} end time">
               <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
             </div>
-            <div class="tag-row" data-scope="segment" data-idx="${i}" style="margin-top:4px"></div>
           </div>
           <div class="seg-btns">
             <button class="icon-btn seg-notes-toggle${s.notes ? ' on' : ''}" data-idx="${i}" style="background:#22223a;color:#8a8aa5" title="Notes">📝</button>
@@ -1397,8 +1396,6 @@
       });
     });
 
-    // Tag rows (per-segment); video-level row rendered separately by openFromLibrary
-    list.querySelectorAll('.tag-row').forEach(renderTagRow);
     applyCollectionFilter();
   }
 
@@ -1438,36 +1435,27 @@
     try { allTags = await (await fetch('/tags')).json(); } catch { allTags = []; }
   }
 
-  function getTagsFor(scope, idx) {
-    if (scope === 'segment') return segments[idx]?.tags ?? [];
-    if (scope === 'video')   return libraryData.find(v => v.id === currentVideoId)?.tags ?? [];
-    return [];
+  function getVideoTags() {
+    return libraryData.find(v => v.id === currentVideoId)?.tags ?? [];
   }
 
-  async function setTagsFor(scope, idx, tags) {
-    if (scope === 'segment') {
-      segments[idx] = { ...segments[idx], tags: tags.length ? tags : undefined };
-      scheduleSegmentSave();
-    } else if (scope === 'video') {
-      if (!currentVideoId) return;
-      const r = await fetch('/library/' + currentVideoId, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags })
-      });
-      if (!r.ok) { setStatus('❌ Failed to save tags'); return; }
-      const updated = await r.json();
-      const entry = libraryData.find(v => v.id === currentVideoId);
-      if (entry) entry.tags = updated.tags;
-    }
+  async function setVideoTags(tags) {
+    if (!currentVideoId) return;
+    const r = await fetch('/library/' + currentVideoId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save tags'); return; }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === currentVideoId);
+    if (entry) entry.tags = updated.tags;
     await loadAllTags();
-    renderCollections(); // match counts change
+    renderCollections();
     applyCollectionFilter();
   }
 
   function renderTagRow(row) {
-    const scope = row.dataset.scope;
-    const idx   = row.dataset.idx ? +row.dataset.idx : null;
-    const tags  = getTagsFor(scope, idx);
+    const tags = getVideoTags();
     const activeQuery = activeCollId
       ? (collections.find(c => c.id === activeCollId)?.query ?? []).map(t => t.toLowerCase())
       : [];
@@ -1486,10 +1474,10 @@
     const commit = async (raw) => {
       const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
       if (!trimmed) return;
-      const current = getTagsFor(scope, idx);
+      const current = getVideoTags();
       if (current.length >= MAX_TAGS_PER_RESOURCE) { setStatus('Tag limit reached (20)'); return; }
       if (current.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tag already added'); return; }
-      await setTagsFor(scope, idx, [...current, trimmed]);
+      await setVideoTags([...current, trimmed]);
       renderTagRow(row);
       row.querySelector('.tag-input').focus();
     };
@@ -1497,15 +1485,15 @@
     row.querySelectorAll('.tag-x').forEach(x => {
       x.addEventListener('click', async () => {
         const i = +x.dataset.i;
-        const next = getTagsFor(scope, idx).filter((_, n) => n !== i);
-        await setTagsFor(scope, idx, next);
+        const next = getVideoTags().filter((_, n) => n !== i);
+        await setVideoTags(next);
         renderTagRow(row);
       });
     });
 
     inp.addEventListener('input', () => {
       const q = inp.value.trim().toLowerCase();
-      const current = getTagsFor(scope, idx).map(t => t.toLowerCase());
+      const current = getVideoTags().map(t => t.toLowerCase());
       const matches = allTags.filter(t =>
         t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
       ).slice(0, 8);
@@ -1558,17 +1546,12 @@
 
   function collMatchCounts(query) {
     const q = query.map(t => t.toLowerCase());
-    let videos = 0, segs = 0;
+    let videos = 0;
     for (const v of libraryData) {
       const vTags = (v.tags ?? []).map(t => t.toLowerCase());
       if (q.every(t => vTags.includes(t))) videos++;
     }
-    // segments only counted for currently-loaded video to keep this cheap
-    for (const s of segments) {
-      const sTags = (s.tags ?? []).map(t => t.toLowerCase());
-      if (q.every(t => sTags.includes(t))) segs++;
-    }
-    return { videos, segs };
+    return { videos };
   }
 
   function renderCollections() {
@@ -1578,9 +1561,9 @@
       return;
     }
     list.innerHTML = collections.map(c => {
-      const { videos, segs } = collMatchCounts(c.query);
+      const { videos } = collMatchCounts(c.query);
       return `<span class="coll-chip${c.id === activeCollId ? ' active' : ''}" data-id="${c.id}">
-        ${escapeHtml(c.name)} <span class="coll-count">${videos}v · ${segs}s</span>
+        ${escapeHtml(c.name)} <span class="coll-count">${videos} video${videos === 1 ? '' : 's'}</span>
         <span class="coll-del" data-id="${c.id}" title="Delete">×</span>
       </span>`;
     }).join('');
@@ -1644,10 +1627,7 @@
     document.querySelectorAll('.lib-item').forEach((el, i) => {
       el.classList.toggle('dim', !matches(libraryData[i]?.tags));
     });
-    document.querySelectorAll('.seg-item').forEach((el, i) => {
-      el.classList.toggle('dim', !matches(segments[i]?.tags));
-    });
-    // re-render tag rows to refresh .match highlights
+    // re-render video tag row to refresh .match highlights
     renderAllTagRows();
   }
 

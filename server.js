@@ -83,8 +83,6 @@ function normalizeSegment(raw) {
         const notes = raw.notes.slice(0, MAX_SEGMENT_NOTES_LEN);
         if (notes.trim()) seg.notes = notes;
     }
-    const tags = normalizeTags(raw.tags);
-    if (tags.length) seg.tags = tags;
     return seg;
 }
 
@@ -287,21 +285,16 @@ app.post('/segments/:id', (req, res) => {
     res.json(normalized);
 });
 
-// ── Tags (union across library + segments) ────────────────────────────────────
+// ── Tags (union across library videos) ────────────────────────────────────────
 app.get('/tags', (req, res) => {
-    const library  = readJSON(LIBRARY_FILE, []);
-    const segments = readJSON(SEGMENTS_FILE, {});
+    const library = readJSON(LIBRARY_FILE, []);
     const map = new Map(); // lowercase → first-seen casing
-    const collect = (tags) => {
-        for (const t of normalizeTags(tags)) {
+    for (const v of library) {
+        if (!v || !Array.isArray(v.tags)) continue;
+        for (const t of normalizeTags(v.tags)) {
             const k = t.toLowerCase();
             if (!map.has(k)) map.set(k, t);
         }
-    };
-    for (const v of library) if (v && Array.isArray(v.tags)) collect(v.tags);
-    for (const segs of Object.values(segments)) {
-        if (!Array.isArray(segs)) continue;
-        for (const s of segs) if (s && Array.isArray(s.tags)) collect(s.tags);
     }
     res.json([...map.values()].sort((a, b) => a.localeCompare(b)));
 });

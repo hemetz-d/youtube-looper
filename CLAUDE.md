@@ -96,7 +96,7 @@ Run before commit. If any step fails, the PR is not done.
 
 ### 7c. Tier 2 checklist additions
 
-- **T2.1 tags:** add tag, save, refresh, appears on segment. Autocomplete pulls from existing tags (case-insensitive). Collection query returns correct set.
+- **T2.1 tags:** add tag to a video, save, refresh, tag persists on the library entry. Autocomplete pulls from existing video tags (case-insensitive). Collection query returns correct set (dims non-matching library entries).
 - **T2.2 status:** cycle states with click and with keyboard. Filter "needs work" excludes mastered. Pill has both color and text/icon.
 - **T2.3 sessions:** start loop, let it run 30s, pause. `data/sessions.json` has one entry with `durationSec ≈ 30`. Crash-test: kill server mid-loop, restart — no corrupt JSON.
 - **T2.4 search:** typing filters in under 100ms for a library of 50 items. Filter chips combine with AND semantics. Filter state survives refresh via `localStorage`.
