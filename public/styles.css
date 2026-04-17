@@ -559,6 +559,59 @@ video { width: 100%; height: 100%; display: block; }
 .speed-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
 .speed-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-mid); }
 
+.volume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vol-mute-btn {
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-normal);
+  border-radius: 5px;
+  font-size: 13px;
+  padding: 3px 8px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+}
+.vol-mute-btn:hover { color: var(--text-primary); background: var(--bg-overlay); }
+.vol-mute-btn.muted { color: var(--accent); border-color: var(--accent-mid); background: var(--accent-dim); }
+.vol-slider {
+  flex: 0 1 180px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-normal);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.vol-slider::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.vol-slider:focus { border-color: var(--accent-mid); }
+.vol-value {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+}
+
 .shortcuts {
   display: flex;
   gap: 14px;

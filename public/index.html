@@ -113,6 +113,15 @@
           <button class="speed-btn active" onclick="setSpeed(1)">1×</button>
           <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
         </div>
+        <div class="volume-row">
+          <button class="vol-mute-btn" id="volMuteBtn" onclick="toggleMute()"
+                  aria-label="Mute" title="Mute (M)">🔊</button>
+          <input type="range" class="vol-slider" id="volSlider"
+                 min="0" max="100" step="1" value="100"
+                 oninput="onVolSlider(this.value)"
+                 aria-label="Volume" />
+          <span class="vol-value" id="volValue">100%</span>
+        </div>
         <div class="shortcuts">
           <span><kbd>Space</kbd> play/pause</span>
           <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
@@ -121,6 +130,8 @@
           <span><kbd>F</kbd> fullscreen</span>
           <span><kbd>-</kbd> <kbd>=</kbd> speed</span>
           <span><kbd>0</kbd> reset speed</span>
+          <span><kbd>↑</kbd> <kbd>↓</kbd> volume</span>
+          <span><kbd>M</kbd> mute</span>
           <span><kbd>D</kbd> download</span>
         </div>
       </div>
