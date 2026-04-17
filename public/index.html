@@ -492,6 +492,43 @@
 
     .seg-btns { display: flex; gap: 6px; }
 
+    .seg-notes-wrap { display: none; padding: 0 16px 10px 50px; }
+    .seg-notes-wrap.open { display: block; }
+    .seg-notes, .video-notes {
+      width: 100%;
+      min-height: 60px;
+      background: #0d0d14;
+      border: 1px solid #22223a;
+      border-radius: 6px;
+      color: #e6e6f0;
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 8px 10px;
+      outline: none;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .seg-notes::placeholder, .video-notes::placeholder { color: #2e2e44; font-style: italic; }
+    .seg-notes:focus, .video-notes:focus { border-color: #7c6fff; }
+    .icon-btn.on { filter: brightness(1.4); box-shadow: inset 0 0 0 1px currentColor; }
+
+    .notes-panel {
+      background: #12121c;
+      border: 1px solid #22223a;
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .notes-panel-header {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #3a3a5a;
+      margin-bottom: 8px;
+    }
+    .video-notes { min-height: 80px; }
+
     .icon-btn {
       width: 28px; height: 28px;
       border: none; border-radius: 6px;
@@ -610,6 +647,11 @@
     <div id="segList">
       <div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>
     </div>
+  </div>
+
+  <div class="notes-panel" id="notesPanel" style="display:none">
+    <div class="notes-panel-header">Video Notes</div>
+    <textarea class="video-notes" id="videoNotes" placeholder="Tuning, key, overall observations…" maxlength="8000" aria-label="Video notes"></textarea>
   </div>
 
 </div>
@@ -756,11 +798,14 @@
   }
 
   async function openFromLibrary(i) {
-    const { id, file, title } = libraryData[i];
+    const entry = libraryData[i];
+    const { id, file, title } = entry;
     currentVideoId = id;
     video.src = file;
     setStatus('📁 ' + title);
     renderLibrary();
+
+    document.getElementById('videoNotes').value = entry.notes ?? '';
 
     const r = await fetch('/segments/' + id);
     segments = await r.json();
@@ -789,6 +834,8 @@
       loopBtn.textContent = '⟳ LOOP';
       document.getElementById('controlPanel').style.display = 'none';
       document.getElementById('segPanel').style.display     = 'none';
+      document.getElementById('notesPanel').style.display   = 'none';
+      document.getElementById('videoNotes').value = '';
       redrawList();
       setStatus('🗑 Deleted');
     }
@@ -868,8 +915,24 @@
   video.addEventListener('loadedmetadata', () => {
     document.getElementById('controlPanel').style.display = 'flex';
     document.getElementById('segPanel').style.display    = 'block';
+    document.getElementById('notesPanel').style.display   = 'block';
     document.getElementById('tRight').textContent = fmt(video.duration);
     redrawTimeline();
+  });
+
+  // ── Video notes ───────────────────────────────────────────────────────────
+  const videoNotesEl = document.getElementById('videoNotes');
+  videoNotesEl.addEventListener('change', async () => {
+    if (!currentVideoId) return;
+    const r = await fetch('/library/' + currentVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: videoNotesEl.value })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save video notes'); return; }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === currentVideoId);
+    if (entry) entry.notes = updated.notes;
   });
 
   // ── Timeline seek ─────────────────────────────────────────────────────────
@@ -1004,18 +1067,24 @@
       return;
     }
     list.innerHTML = segments.map((s, i) => `
-      <div class="seg-item" id="si${i}">
-        <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
-        <div class="seg-info">
-          <input class="seg-label" data-idx="${i}" placeholder="Name segment ${i + 1}" maxlength="80" aria-label="Segment ${i + 1} label">
-          <div class="seg-times">
-            ${fmt(s.start, true)} → ${fmt(s.end, true)}
-            <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
+      <div class="seg-row" id="sr${i}">
+        <div class="seg-item" id="si${i}">
+          <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
+          <div class="seg-info">
+            <input class="seg-label" data-idx="${i}" placeholder="Name segment ${i + 1}" maxlength="80" aria-label="Segment ${i + 1} label">
+            <div class="seg-times">
+              ${fmt(s.start, true)} → ${fmt(s.end, true)}
+              <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
+            </div>
+          </div>
+          <div class="seg-btns">
+            <button class="icon-btn seg-notes-toggle${s.notes ? ' on' : ''}" data-idx="${i}" style="background:#22223a;color:#8a8aa5" title="Notes">📝</button>
+            <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
+            <button class="icon-btn" style="background:#ff446620;color:#ff4466" onclick="removeSegment(${i})" title="Remove">✕</button>
           </div>
         </div>
-        <div class="seg-btns">
-          <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
-          <button class="icon-btn" style="background:#ff446620;color:#ff4466" onclick="removeSegment(${i})" title="Remove">✕</button>
+        <div class="seg-notes-wrap${s.notes ? ' open' : ''}" id="sn${i}">
+          <textarea class="seg-notes" data-idx="${i}" placeholder="Notes for segment ${i + 1}…" maxlength="2000" aria-label="Segment ${i + 1} notes"></textarea>
         </div>
       </div>
     `).join('');
@@ -1037,11 +1106,36 @@
         }
       });
     });
+
+    list.querySelectorAll('.seg-notes').forEach(ta => {
+      const idx = +ta.dataset.idx;
+      ta.value = segments[idx].notes ?? '';
+      ta.addEventListener('change', () => {
+        segments[idx].notes = ta.value;
+        scheduleSegmentSave();
+        // keep the toggle indicator in sync with content
+        const toggle = list.querySelector(`.seg-notes-toggle[data-idx="${idx}"]`);
+        if (toggle) toggle.classList.toggle('on', !!ta.value.trim());
+      });
+      ta.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.preventDefault(); ta.value = segments[idx].notes ?? ''; ta.blur(); }
+      });
+    });
+
+    list.querySelectorAll('.seg-notes-toggle').forEach(btn => {
+      const idx = +btn.dataset.idx;
+      btn.addEventListener('click', () => {
+        const wrap = document.getElementById('sn' + idx);
+        const willOpen = !wrap.classList.contains('open');
+        wrap.classList.toggle('open', willOpen);
+        if (willOpen) wrap.querySelector('.seg-notes').focus();
+      });
+    });
   }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     switch (e.key) {
       case 'i': case '[': setIn();  break;
       case 'o': case ']': setOut(); break;
