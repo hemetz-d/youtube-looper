@@ -126,51 +126,13 @@ app.delete('/cookies', (req, res) => {
     res.json({ success: true });
 });
 
-// ── Cookie auto-detection ─────────────────────────────────────────────────────
-// Priority: cookies.txt → browser fallback chain → no cookies
-const BROWSERS = ['firefox', 'chrome', 'edge', 'brave', 'chromium'];
-
-function isCookieError(err) {
-    const msg = String(err.stderr || err.message || '').toLowerCase();
-    return msg.includes('could not copy')
-        || msg.includes('cookie')
-        || msg.includes('dpapi')
-        || msg.includes('decrypt');
-}
-
+// ── Cookie handling ───────────────────────────────────────────────────────────
+// Use cookies.txt if uploaded, otherwise no cookies.
 async function fetchInfo(url, extraOpts = {}) {
     const base = { dumpSingleJson: true, noCheckCertificate: true, noWarnings: true };
-
-    // 1. cookies.txt
-    if (fs.existsSync(COOKIES_FILE)) {
-        try {
-            const info = await youtubedl(url, { ...base, ...extraOpts, cookies: COOKIES_FILE });
-            console.log('[cookies] using cookies.txt');
-            return { info, cookiesOpt: { cookies: COOKIES_FILE } };
-        } catch (err) {
-            const reason = String(err.stderr || err.message || '').split('\n')[0].trim();
-            if (isCookieError(err)) { console.log(`[cookies] cookies.txt failed (${reason}), trying browsers…`); }
-            else throw err;
-        }
-    }
-
-    // 2. Browser fallback chain
-    for (const browser of BROWSERS) {
-        try {
-            const info = await youtubedl(url, { ...base, ...extraOpts, cookiesFromBrowser: browser });
-            console.log(`[cookies] using ${browser}`);
-            return { info, cookiesOpt: { cookiesFromBrowser: browser } };
-        } catch (err) {
-            const reason = String(err.stderr || err.message || '').split('\n')[0].trim();
-            if (isCookieError(err)) { console.log(`[cookies] ${browser} failed (${reason}), trying next…`); continue; }
-            throw err;
-        }
-    }
-
-    // 3. No cookies
-    console.log('[cookies] all options failed, trying without cookies');
-    const info = await youtubedl(url, { ...base, ...extraOpts });
-    return { info, cookiesOpt: {} };
+    const cookiesOpt = fs.existsSync(COOKIES_FILE) ? { cookies: COOKIES_FILE } : {};
+    const info = await youtubedl(url, { ...base, ...extraOpts, ...cookiesOpt });
+    return { info, cookiesOpt };
 }
 
 // ── Download ──────────────────────────────────────────────────────────────────
