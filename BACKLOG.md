@@ -15,7 +15,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
   *Schema touch:* `segments.json` segment objects gain `label?: string`.
   *UI:* inline-editable label on segment chips; Enter commits, Esc cancels.
 
-- [ ] **T1.2 — Notes per segment and per video**
+- [x] **T1.2 — Notes per segment and per video**
   Free-text notes. Multiline. Autosaves on blur.
   *Schema:* segment gains `notes?: string`; `library.json` video entries gain `notes?: string`.
   *UI:* collapsible notes panel next to the timeline; textarea tied to the currently selected segment, plus a video-level notes box in the library row.

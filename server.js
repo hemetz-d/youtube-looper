@@ -40,6 +40,8 @@ function writeJSON(file, data) {
 }
 
 const MAX_SEGMENT_LABEL_LEN = 80;
+const MAX_SEGMENT_NOTES_LEN = 2000;
+const MAX_VIDEO_NOTES_LEN   = 8000;
 
 function normalizeSegment(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -55,7 +57,27 @@ function normalizeSegment(raw) {
         const label = raw.label.trim().slice(0, MAX_SEGMENT_LABEL_LEN);
         if (label) seg.label = label;
     }
+    if (typeof raw.notes === 'string') {
+        const notes = raw.notes.slice(0, MAX_SEGMENT_NOTES_LEN);
+        if (notes.trim()) seg.notes = notes;
+    }
     return seg;
+}
+
+function normalizeLibraryEntry(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof raw.id !== 'string' || typeof raw.file !== 'string') return null;
+    const entry = {
+        id: raw.id,
+        title: typeof raw.title === 'string' ? raw.title : raw.id,
+        file: raw.file,
+        duration: Number.isFinite(raw.duration) ? raw.duration : null,
+    };
+    if (typeof raw.notes === 'string') {
+        const notes = raw.notes.slice(0, MAX_VIDEO_NOTES_LEN);
+        if (notes.trim()) entry.notes = notes;
+    }
+    return entry;
 }
 
 // ── SSE progress clients ──────────────────────────────────────────────────────
@@ -205,7 +227,29 @@ app.post('/download', async (req, res) => {
 // ── Library ───────────────────────────────────────────────────────────────────
 app.get('/library', (req, res) => {
     const library = readJSON(LIBRARY_FILE, []);
-    res.json(library.filter(v => fs.existsSync(path.join(__dirname, 'public', v.file))));
+    const filtered = library
+        .filter(v => v && typeof v === 'object' && typeof v.file === 'string'
+            && fs.existsSync(path.join(__dirname, 'public', v.file)))
+        .map(normalizeLibraryEntry)
+        .filter(Boolean);
+    res.json(filtered);
+});
+
+app.post('/library/:id', (req, res) => {
+    const { id } = req.params;
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        return res.status(400).json({ success: false, error: 'Expected JSON object body' });
+    }
+    const library = readJSON(LIBRARY_FILE, []);
+    const idx = library.findIndex(v => v && v.id === id);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Not found' });
+    // Only `notes` is mutable here; id/file/title/duration stay put.
+    const merged = { ...library[idx], notes: req.body.notes };
+    const normalized = normalizeLibraryEntry(merged);
+    if (!normalized) return res.status(400).json({ success: false, error: 'Invalid entry' });
+    library[idx] = normalized;
+    writeJSON(LIBRARY_FILE, library);
+    res.json(normalized);
 });
 
 app.delete('/library/:id', (req, res) => {
