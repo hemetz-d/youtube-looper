@@ -584,6 +584,115 @@
       flex-shrink: 0;
     }
     .save-dot.visible { opacity: 1; }
+
+    /* ── Tags ────────────────────────────────────────────────────────────── */
+    .tag-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+      position: relative;
+    }
+    .tag-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #22223a; color: #a0a0be;
+      font-size: 11px; padding: 2px 8px;
+      border-radius: 10px;
+      line-height: 1.6;
+    }
+    .tag-chip .tag-x {
+      cursor: pointer; color: #5a5a7a;
+      padding: 0 2px; font-size: 11px;
+    }
+    .tag-chip .tag-x:hover { color: #ff4466; }
+    .tag-chip.match { background: #7c6fff33; color: #cbc4ff; }
+
+    .tag-input {
+      background: transparent;
+      border: 1px dashed #22223a;
+      border-radius: 10px;
+      color: #a0a0be;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 2px 8px;
+      width: 12ch;
+      outline: none;
+    }
+    .tag-input:hover { border-color: #44445a; }
+    .tag-input:focus { border-color: #7c6fff; background: #0d0d14; color: #e6e6f0; }
+
+    .tag-suggest {
+      position: absolute;
+      z-index: 40;
+      background: #16161f;
+      border: 1px solid #22223a;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      min-width: 140px;
+      max-height: 180px;
+      overflow-y: auto;
+      font-size: 12px;
+      display: none;
+    }
+    .tag-suggest.open { display: block; }
+    .tag-suggest-item {
+      padding: 5px 10px;
+      cursor: pointer;
+      color: #a0a0be;
+    }
+    .tag-suggest-item.active, .tag-suggest-item:hover {
+      background: #7c6fff22; color: #e6e6f0;
+    }
+
+    /* ── Collections ─────────────────────────────────────────────────────── */
+    .coll-panel {
+      background: #12121c;
+      border: 1px solid #22223a;
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .coll-panel-header {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: #3a3a5a;
+      margin-bottom: 8px;
+    }
+    .coll-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .coll-empty { font-size: 12px; color: #33335a; font-style: italic; }
+    .coll-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #1c1c2e; color: #a0a0be;
+      font-size: 12px; padding: 4px 10px;
+      border-radius: 14px; border: 1px solid #22223a;
+      cursor: pointer;
+    }
+    .coll-chip:hover { border-color: #44445a; }
+    .coll-chip.active { background: #7c6fff22; color: #cbc4ff; border-color: #7c6fff; }
+    .coll-chip .coll-count { font-size: 10px; color: #5a5a7a; }
+    .coll-chip.active .coll-count { color: #cbc4ff; }
+    .coll-chip .coll-del {
+      color: #44445a; cursor: pointer; padding: 0 2px;
+    }
+    .coll-chip .coll-del:hover { color: #ff4466; }
+
+    .coll-new {
+      display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid #1a1a28;
+    }
+    .coll-new-name {
+      background: transparent;
+      border: 1px solid #22223a;
+      border-radius: 6px;
+      color: #e6e6f0;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 3px 8px;
+      outline: none;
+      width: 12ch;
+    }
+    .coll-new-name:focus { border-color: #7c6fff; }
+
+    /* dim non-matching items when a collection is active */
+    .seg-item.dim, .lib-item.dim { opacity: 0.32; }
   </style>
 </head>
 <body>
@@ -627,6 +736,22 @@
       <span class="library-chevron" id="libraryChevron">▼</span>
     </div>
     <div class="library-list" id="libraryList" style="display:none"></div>
+  </div>
+
+  <!-- Collections -->
+  <div class="coll-panel" id="collPanel" style="display:none">
+    <div class="coll-panel-header">
+      <span>Collections</span>
+      <button class="btn-danger-ghost" onclick="toggleCollNew()" id="collNewBtn">+ New</button>
+    </div>
+    <div class="coll-list" id="collList">
+      <div class="coll-empty">No collections yet.</div>
+    </div>
+    <div class="coll-new" id="collNew" style="display:none">
+      <input class="coll-new-name" id="collNewName" placeholder="Name" maxlength="80" aria-label="Collection name">
+      <input class="coll-new-name" id="collNewTags" placeholder="tags (space-separated)" style="width:20ch" aria-label="Collection query tags">
+      <button class="btn-danger-ghost" onclick="submitNewColl()">Save</button>
+    </div>
   </div>
 
   <div class="video-wrap" id="videoWrap">
@@ -687,7 +812,8 @@
 
   <div class="notes-panel" id="notesPanel" style="display:none">
     <div class="notes-panel-header">Video Notes</div>
-    <textarea class="video-notes" id="videoNotes" placeholder="Tuning, key, overall observations…" maxlength="8000" aria-label="Video notes"></textarea>
+    <div class="tag-row" id="videoTagRow" data-scope="video"></div>
+    <textarea class="video-notes" id="videoNotes" placeholder="Tuning, key, overall observations…" maxlength="8000" aria-label="Video notes" style="margin-top:8px"></textarea>
   </div>
 
 </div>
@@ -713,9 +839,14 @@
   let saveTimer       = null;
   let libraryOpen     = false;
   let libraryData     = [];
+  let allTags         = [];       // autocomplete source (server union)
+  let collections     = [];       // saved collections
+  let activeCollId    = null;     // currently-applied collection
 
   // ── Init ──────────────────────────────────────────────────────────────────
   loadLibrary();
+  loadCollections();
+  loadAllTags();
   checkCookies();
 
   // ── Cookies ───────────────────────────────────────────────────────────────
@@ -804,6 +935,8 @@
     const r = await fetch('/library');
     libraryData = await r.json();
     renderLibrary();
+    renderCollections();
+    applyCollectionFilter();
   }
 
   function renderLibrary() {
@@ -842,6 +975,7 @@
     renderLibrary();
 
     document.getElementById('videoNotes').value = entry.notes ?? '';
+    renderTagRow(document.getElementById('videoTagRow'));
 
     const r = await fetch('/segments/' + id);
     segments = await r.json();
@@ -851,6 +985,7 @@
     resetSpeed();
     redrawTimeline();
     redrawList();
+    renderCollections(); // segment-match counts depend on the current video
   }
 
   async function deleteVideo(i) {
@@ -872,6 +1007,7 @@
       document.getElementById('segPanel').style.display     = 'none';
       document.getElementById('notesPanel').style.display   = 'none';
       document.getElementById('videoNotes').value = '';
+      document.getElementById('videoTagRow').innerHTML = '';
       redrawList();
       setStatus('🗑 Deleted');
     }
@@ -1163,6 +1299,7 @@
               <input class="seg-time-input" data-idx="${i}" data-edge="end" aria-label="Segment ${i + 1} end time">
               <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
             </div>
+            <div class="tag-row" data-scope="segment" data-idx="${i}" style="margin-top:4px"></div>
           </div>
           <div class="seg-btns">
             <button class="icon-btn seg-notes-toggle${s.notes ? ' on' : ''}" data-idx="${i}" style="background:#22223a;color:#8a8aa5" title="Notes">📝</button>
@@ -1259,6 +1396,10 @@
         if (willOpen) wrap.querySelector('.seg-notes').focus();
       });
     });
+
+    // Tag rows (per-segment); video-level row rendered separately by openFromLibrary
+    list.querySelectorAll('.tag-row').forEach(renderTagRow);
+    applyCollectionFilter();
   }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
@@ -1290,6 +1431,226 @@
   });
 
   // ── Utils ─────────────────────────────────────────────────────────────────
+  // ── Tags ──────────────────────────────────────────────────────────────────
+  const MAX_TAG_LEN = 40, MAX_TAGS_PER_RESOURCE = 20;
+
+  async function loadAllTags() {
+    try { allTags = await (await fetch('/tags')).json(); } catch { allTags = []; }
+  }
+
+  function getTagsFor(scope, idx) {
+    if (scope === 'segment') return segments[idx]?.tags ?? [];
+    if (scope === 'video')   return libraryData.find(v => v.id === currentVideoId)?.tags ?? [];
+    return [];
+  }
+
+  async function setTagsFor(scope, idx, tags) {
+    if (scope === 'segment') {
+      segments[idx] = { ...segments[idx], tags: tags.length ? tags : undefined };
+      scheduleSegmentSave();
+    } else if (scope === 'video') {
+      if (!currentVideoId) return;
+      const r = await fetch('/library/' + currentVideoId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags })
+      });
+      if (!r.ok) { setStatus('❌ Failed to save tags'); return; }
+      const updated = await r.json();
+      const entry = libraryData.find(v => v.id === currentVideoId);
+      if (entry) entry.tags = updated.tags;
+    }
+    await loadAllTags();
+    renderCollections(); // match counts change
+    applyCollectionFilter();
+  }
+
+  function renderTagRow(row) {
+    const scope = row.dataset.scope;
+    const idx   = row.dataset.idx ? +row.dataset.idx : null;
+    const tags  = getTagsFor(scope, idx);
+    const activeQuery = activeCollId
+      ? (collections.find(c => c.id === activeCollId)?.query ?? []).map(t => t.toLowerCase())
+      : [];
+    const isMatch = (t) => activeQuery.includes(t.toLowerCase());
+
+    row.innerHTML = tags.map((t, i) => `
+      <span class="tag-chip${isMatch(t) ? ' match' : ''}">
+        ${escapeHtml(t)}<span class="tag-x" data-i="${i}" title="Remove">×</span>
+      </span>
+    `).join('') + `<input class="tag-input" placeholder="+ tag" maxlength="${MAX_TAG_LEN}" aria-label="Add tag"><div class="tag-suggest"></div>`;
+
+    const inp = row.querySelector('.tag-input');
+    const sug = row.querySelector('.tag-suggest');
+    let hi = -1;
+
+    const commit = async (raw) => {
+      const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
+      if (!trimmed) return;
+      const current = getTagsFor(scope, idx);
+      if (current.length >= MAX_TAGS_PER_RESOURCE) { setStatus('Tag limit reached (20)'); return; }
+      if (current.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tag already added'); return; }
+      await setTagsFor(scope, idx, [...current, trimmed]);
+      renderTagRow(row);
+      row.querySelector('.tag-input').focus();
+    };
+
+    row.querySelectorAll('.tag-x').forEach(x => {
+      x.addEventListener('click', async () => {
+        const i = +x.dataset.i;
+        const next = getTagsFor(scope, idx).filter((_, n) => n !== i);
+        await setTagsFor(scope, idx, next);
+        renderTagRow(row);
+      });
+    });
+
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim().toLowerCase();
+      const current = getTagsFor(scope, idx).map(t => t.toLowerCase());
+      const matches = allTags.filter(t =>
+        t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
+      ).slice(0, 8);
+      if (!q || !matches.length) { sug.classList.remove('open'); return; }
+      hi = -1;
+      sug.innerHTML = matches.map((t, i) =>
+        `<div class="tag-suggest-item" data-tag="${escapeHtml(t)}" data-i="${i}">${escapeHtml(t)}</div>`
+      ).join('');
+      sug.classList.add('open');
+      sug.querySelectorAll('.tag-suggest-item').forEach(item => {
+        item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); sug.classList.remove('open'); inp.value = ''; });
+      });
+    });
+
+    inp.addEventListener('keydown', e => {
+      const items = [...sug.querySelectorAll('.tag-suggest-item')];
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
+        commit(pick); sug.classList.remove('open'); inp.value = '';
+      } else if (e.key === 'Escape') {
+        sug.classList.remove('open'); inp.blur();
+      } else if (e.key === 'ArrowDown' && items.length) {
+        e.preventDefault(); hi = (hi + 1) % items.length;
+        items.forEach((it, i) => it.classList.toggle('active', i === hi));
+      } else if (e.key === 'ArrowUp' && items.length) {
+        e.preventDefault(); hi = (hi - 1 + items.length) % items.length;
+        items.forEach((it, i) => it.classList.toggle('active', i === hi));
+      }
+    });
+    inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
+  }
+
+  function renderAllTagRows() {
+    document.querySelectorAll('.tag-row').forEach(renderTagRow);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ── Collections ───────────────────────────────────────────────────────────
+  async function loadCollections() {
+    try {
+      collections = await (await fetch('/collections')).json();
+    } catch { collections = []; }
+    renderCollections();
+    document.getElementById('collPanel').style.display = 'block';
+  }
+
+  function collMatchCounts(query) {
+    const q = query.map(t => t.toLowerCase());
+    let videos = 0, segs = 0;
+    for (const v of libraryData) {
+      const vTags = (v.tags ?? []).map(t => t.toLowerCase());
+      if (q.every(t => vTags.includes(t))) videos++;
+    }
+    // segments only counted for currently-loaded video to keep this cheap
+    for (const s of segments) {
+      const sTags = (s.tags ?? []).map(t => t.toLowerCase());
+      if (q.every(t => sTags.includes(t))) segs++;
+    }
+    return { videos, segs };
+  }
+
+  function renderCollections() {
+    const list = document.getElementById('collList');
+    if (!collections.length) {
+      list.innerHTML = '<div class="coll-empty">No collections yet.</div>';
+      return;
+    }
+    list.innerHTML = collections.map(c => {
+      const { videos, segs } = collMatchCounts(c.query);
+      return `<span class="coll-chip${c.id === activeCollId ? ' active' : ''}" data-id="${c.id}">
+        ${escapeHtml(c.name)} <span class="coll-count">${videos}v · ${segs}s</span>
+        <span class="coll-del" data-id="${c.id}" title="Delete">×</span>
+      </span>`;
+    }).join('');
+    list.querySelectorAll('.coll-chip').forEach(chip => {
+      chip.addEventListener('click', e => {
+        if (e.target.classList.contains('coll-del')) return;
+        activeCollId = (activeCollId === chip.dataset.id) ? null : chip.dataset.id;
+        renderCollections();
+        applyCollectionFilter();
+      });
+    });
+    list.querySelectorAll('.coll-del').forEach(x => {
+      x.addEventListener('click', async e => {
+        e.stopPropagation();
+        const id = x.dataset.id;
+        if (!confirm('Delete this collection?')) return;
+        const r = await fetch('/collections/' + id, { method: 'DELETE' });
+        if (!r.ok) { setStatus('❌ Delete failed'); return; }
+        if (activeCollId === id) activeCollId = null;
+        collections = collections.filter(c => c.id !== id);
+        renderCollections();
+        applyCollectionFilter();
+      });
+    });
+  }
+
+  function toggleCollNew() {
+    const box = document.getElementById('collNew');
+    const open = box.style.display === 'none';
+    box.style.display = open ? 'flex' : 'none';
+    if (open) document.getElementById('collNewName').focus();
+  }
+
+  async function submitNewColl() {
+    const name = document.getElementById('collNewName').value.trim();
+    const query = document.getElementById('collNewTags').value
+      .split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    if (!name || !query.length) { setStatus('Collection needs a name and ≥1 tag'); return; }
+    const r = await fetch('/collections', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, query })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save collection'); return; }
+    const created = await r.json();
+    const idx = collections.findIndex(c => c.id === created.id);
+    if (idx >= 0) collections[idx] = created; else collections.push(created);
+    document.getElementById('collNewName').value = '';
+    document.getElementById('collNewTags').value = '';
+    toggleCollNew();
+    renderCollections();
+  }
+
+  function applyCollectionFilter() {
+    const coll = collections.find(c => c.id === activeCollId);
+    const q = (coll?.query ?? []).map(t => t.toLowerCase());
+    const matches = (tags) => {
+      if (!q.length) return true;
+      const lower = (tags ?? []).map(t => t.toLowerCase());
+      return q.every(t => lower.includes(t));
+    };
+    document.querySelectorAll('.lib-item').forEach((el, i) => {
+      el.classList.toggle('dim', !matches(libraryData[i]?.tags));
+    });
+    document.querySelectorAll('.seg-item').forEach((el, i) => {
+      el.classList.toggle('dim', !matches(segments[i]?.tags));
+    });
+    // re-render tag rows to refresh .match highlights
+    renderAllTagRows();
+  }
+
   function fmt(t, precise = false) {
     if (!isFinite(t) || t < 0) t = 0;
     const m  = Math.floor(t / 60);

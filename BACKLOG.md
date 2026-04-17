@@ -32,7 +32,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 
 ## Tier 2 — Practice-library primitives (new concepts, still local-first)
 
-- [ ] **T2.1 — Tags and collections**
+- [x] **T2.1 — Tags and collections**
   Arbitrary string tags on segments and videos. A "collection" is just a saved tag query.
   *Schema:* `tags?: string[]` on segment and video. New `data/collections.json` for saved queries: `[{ id, name, query: string[] }]`.
   *UI:* tag input with autocomplete from existing tags; sidebar list of collections.
