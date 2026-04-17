@@ -487,8 +487,44 @@
     .seg-label:hover { border-color: #22223a; }
     .seg-label:focus { border-color: #7c6fff; background: #0d0d14; }
 
-    .seg-times { font-variant-numeric: tabular-nums; color: #8a8aa5; font-size: 12px; }
+    .seg-times { font-variant-numeric: tabular-nums; color: #8a8aa5; font-size: 12px; display: flex; align-items: center; gap: 6px; }
     .seg-dur { font-size: 11px; color: #3a3a5a; }
+    .seg-time-input {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      color: #a0a0be;
+      font-family: inherit;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 4px;
+      width: 6ch;
+      outline: none;
+    }
+    .seg-time-input:hover { border-color: #22223a; }
+    .seg-time-input:focus { border-color: #7c6fff; background: #0d0d14; color: #e6e6f0; }
+    .seg-time-input.error { border-color: #ff4466; color: #ff4466; }
+    .seg-arrow { color: #3a3a5a; font-size: 11px; }
+
+    .seg-handle {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 8px;
+      background: transparent;
+      cursor: ew-resize;
+      z-index: 7;
+    }
+    .seg-handle::before {
+      content: '';
+      position: absolute;
+      top: 6px; bottom: 6px;
+      left: 3px; width: 2px;
+      background: rgba(255,255,255,0.6);
+      border-radius: 1px;
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+    .seg-handle:hover::before, .seg-handle.dragging::before { opacity: 1; }
 
     .seg-btns { display: flex; gap: 6px; }
 
@@ -938,8 +974,45 @@
   // ── Timeline seek ─────────────────────────────────────────────────────────
   tl.addEventListener('click', e => {
     if (!video.duration) return;
+    if (e.target.classList.contains('seg-handle')) return;
     const r = tl.getBoundingClientRect();
     video.currentTime = ((e.clientX - r.left) / r.width) * video.duration;
+  });
+
+  // ── Timeline drag handles ─────────────────────────────────────────────────
+  tl.addEventListener('mousedown', e => {
+    const handle = e.target.closest('.seg-handle');
+    if (!handle || !video.duration) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handle.classList.add('dragging');
+
+    const idx  = +handle.dataset.idx;
+    const edge = handle.dataset.edge;
+    const MIN_SEG = 0.15;
+    const rect = tl.getBoundingClientRect();
+
+    const onMove = (ev) => {
+      const t = Math.max(0, Math.min(video.duration, ((ev.clientX - rect.left) / rect.width) * video.duration));
+      const seg = segments[idx];
+      if (edge === 'start') seg.start = Math.min(t, seg.end - MIN_SEG);
+      else                  seg.end   = Math.max(t, seg.start + MIN_SEG);
+      redrawTimeline();
+      // keep the input field(s) in sync without losing focus elsewhere
+      const selector = `.seg-time-input[data-idx="${idx}"][data-edge="${edge}"]`;
+      const inp = document.querySelector(selector);
+      if (inp && document.activeElement !== inp) inp.value = formatEditTime(seg[edge]);
+      const durSpan = document.querySelector(`#si${idx} .seg-dur`);
+      if (durSpan) durSpan.textContent = ` · ${fmt(seg.end - seg.start, true)}`;
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      handle.classList.remove('dragging');
+      scheduleSegmentSave();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   });
 
   // ── In / Out ──────────────────────────────────────────────────────────────
@@ -1035,14 +1108,26 @@
 
   // ── Render timeline ───────────────────────────────────────────────────────
   function redrawTimeline() {
-    tl.querySelectorAll('.seg-bar, .in-marker, .in-label').forEach(e => e.remove());
+    tl.querySelectorAll('.seg-bar, .in-marker, .in-label, .seg-handle').forEach(e => e.remove());
     const d = video.duration || 1;
 
-    segments.forEach(seg => {
+    segments.forEach((seg, i) => {
       const bar = document.createElement('div');
       bar.className = 'seg-bar';
       bar.style.cssText = `left:${seg.start/d*100}%;width:${(seg.end-seg.start)/d*100}%;background:${seg.color};opacity:0.45;`;
       tl.insertBefore(bar, ph);
+
+      if (!video.duration) return;
+      const left = document.createElement('div');
+      left.className = 'seg-handle';
+      left.dataset.idx = i; left.dataset.edge = 'start';
+      left.style.left = `calc(${seg.start/d*100}% - 4px)`;
+      const right = document.createElement('div');
+      right.className = 'seg-handle';
+      right.dataset.idx = i; right.dataset.edge = 'end';
+      right.style.left = `calc(${seg.end/d*100}% - 4px)`;
+      tl.insertBefore(left, ph);
+      tl.insertBefore(right, ph);
     });
 
     if (pendingIn !== null) {
@@ -1073,7 +1158,9 @@
           <div class="seg-info">
             <input class="seg-label" data-idx="${i}" placeholder="Name segment ${i + 1}" maxlength="80" aria-label="Segment ${i + 1} label">
             <div class="seg-times">
-              ${fmt(s.start, true)} → ${fmt(s.end, true)}
+              <input class="seg-time-input" data-idx="${i}" data-edge="start" aria-label="Segment ${i + 1} start time">
+              <span class="seg-arrow">→</span>
+              <input class="seg-time-input" data-idx="${i}" data-edge="end" aria-label="Segment ${i + 1} end time">
               <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
             </div>
           </div>
@@ -1102,6 +1189,47 @@
         else if (e.key === 'Escape') {
           e.preventDefault();
           inp.value = segments[idx].label ?? '';  // restore from committed state
+          inp.blur();
+        }
+      });
+    });
+
+    const MIN_SEG = 0.15;
+    list.querySelectorAll('.seg-time-input').forEach(inp => {
+      const idx  = +inp.dataset.idx;
+      const edge = inp.dataset.edge; // 'start' | 'end'
+      inp.value = formatEditTime(segments[idx][edge]);
+      inp.addEventListener('change', () => {
+        const parsed = parseTime(inp.value);
+        const dur = video.duration || Infinity;
+        const other = edge === 'start' ? segments[idx].end : segments[idx].start;
+        const valid =
+          Number.isFinite(parsed) && parsed >= 0 && parsed <= dur &&
+          (edge === 'start' ? parsed + MIN_SEG <= other : parsed - MIN_SEG >= other);
+        if (!valid) {
+          inp.classList.add('error');
+          setStatus(edge === 'start'
+            ? `Invalid start — must be < end and ≥ 0`
+            : `Invalid end — must be > start and ≤ video duration`);
+          // restore prior value after a brief moment so the user sees the error
+          setTimeout(() => { inp.value = formatEditTime(segments[idx][edge]); inp.classList.remove('error'); }, 900);
+          return;
+        }
+        segments[idx][edge] = parsed;
+        inp.classList.remove('error');
+        inp.value = formatEditTime(parsed); // canonicalize
+        scheduleSegmentSave();
+        redrawTimeline();
+        // update the duration span live without a full redrawList (avoids losing focus on siblings)
+        const durSpan = inp.parentElement.querySelector('.seg-dur');
+        if (durSpan) durSpan.textContent = ` · ${fmt(segments[idx].end - segments[idx].start, true)}`;
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        else if (e.key === 'Escape') {
+          e.preventDefault();
+          inp.classList.remove('error');
+          inp.value = formatEditTime(segments[idx][edge]);
           inp.blur();
         }
       });
@@ -1168,6 +1296,29 @@
     const s  = Math.floor(t % 60);
     const ds = precise ? '.' + Math.floor((t % 1) * 10) : '';
     return `${m}:${String(s).padStart(2, '0')}${ds}`;
+  }
+
+  // mm:ss.ss for editable inputs — two decimal precision.
+  function formatEditTime(t) {
+    if (!isFinite(t) || t < 0) t = 0;
+    const m = Math.floor(t / 60);
+    const s = t - m * 60;
+    return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+  }
+
+  // Accepts "mm:ss.ss", "m:ss", or bare seconds ("12.34"). Returns NaN on bad input.
+  function parseTime(str) {
+    if (typeof str !== 'string') return NaN;
+    const s = str.trim();
+    if (!s) return NaN;
+    if (s.includes(':')) {
+      const [mPart, sPart] = s.split(':');
+      const m = Number(mPart), sec = Number(sPart);
+      if (!Number.isFinite(m) || !Number.isFinite(sec) || m < 0 || sec < 0 || sec >= 60) return NaN;
+      return m * 60 + sec;
+    }
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : NaN;
   }
 
   function setStatus(msg) {

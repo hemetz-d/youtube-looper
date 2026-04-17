@@ -20,12 +20,10 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
   *Schema:* segment gains `notes?: string`; `library.json` video entries gain `notes?: string`.
   *UI:* collapsible notes panel next to the timeline; textarea tied to the currently selected segment, plus a video-level notes box in the library row.
 
-- [ ] **T1.3 — Persist speed per segment**
-  Loading a segment restores its saved speed; changing speed while that segment is active writes back.
-  *Schema:* segment gains `speed?: number` (0.25–2.0).
-  *Interaction:* no new UI; existing speed controls just persist.
+- [-] **T1.3 — Persist speed per segment** *(dropped)*
+  Global playback speed is sufficient in practice; per-segment speed adds state without enough payoff.
 
-- [ ] **T1.4 — Edit segment in/out after creation**
+- [x] **T1.4 — Edit segment in/out after creation**
   Adjust boundaries without deleting and re-creating.
   *UI:* drag handles on the segment bar, plus numeric inputs in the segment chip (mm:ss.ss).
   *Constraint:* must never allow `out <= in`; clamp to video duration.
