@@ -34,7 +34,28 @@ function readJSON(file, fallback) {
 
 function writeJSON(file, data) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, file);
+}
+
+const MAX_SEGMENT_LABEL_LEN = 80;
+
+function normalizeSegment(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const start = Number(raw.start);
+    const end   = Number(raw.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    const seg = {
+        start,
+        end,
+        color: typeof raw.color === 'string' ? raw.color : '#7c6fff',
+    };
+    if (typeof raw.label === 'string') {
+        const label = raw.label.trim().slice(0, MAX_SEGMENT_LABEL_LEN);
+        if (label) seg.label = label;
+    }
+    return seg;
 }
 
 // ── SSE progress clients ──────────────────────────────────────────────────────
@@ -206,14 +227,19 @@ app.delete('/library/:id', (req, res) => {
 // ── Segments ──────────────────────────────────────────────────────────────────
 app.get('/segments/:id', (req, res) => {
     const all = readJSON(SEGMENTS_FILE, {});
-    res.json(all[req.params.id] ?? []);
+    const raw = Array.isArray(all[req.params.id]) ? all[req.params.id] : [];
+    res.json(raw.map(normalizeSegment).filter(Boolean));
 });
 
 app.post('/segments/:id', (req, res) => {
+    if (!Array.isArray(req.body)) {
+        return res.status(400).json({ success: false, error: 'Expected array of segments' });
+    }
+    const normalized = req.body.map(normalizeSegment).filter(Boolean);
     const all = readJSON(SEGMENTS_FILE, {});
-    all[req.params.id] = req.body;
+    all[req.params.id] = normalized;
     writeJSON(SEGMENTS_FILE, all);
-    res.json({ success: true });
+    res.json(normalized);
 });
 
 // ── Server ────────────────────────────────────────────────────────────────────

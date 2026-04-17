@@ -465,10 +465,29 @@
 
     .seg-info {
       flex: 1;
+      min-width: 0;
       font-size: 13px;
-      font-variant-numeric: tabular-nums;
     }
 
+    .seg-label {
+      display: block;
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #e6e6f0;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 2px 6px;
+      margin: 0 0 2px -6px;
+      outline: none;
+      box-sizing: border-box;
+    }
+    .seg-label::placeholder { color: #2e2e44; font-style: italic; }
+    .seg-label:hover { border-color: #22223a; }
+    .seg-label:focus { border-color: #7c6fff; background: #0d0d14; }
+
+    .seg-times { font-variant-numeric: tabular-nums; color: #8a8aa5; font-size: 12px; }
     .seg-dur { font-size: 11px; color: #3a3a5a; }
 
     .seg-btns { display: flex; gap: 6px; }
@@ -988,8 +1007,11 @@
       <div class="seg-item" id="si${i}">
         <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
         <div class="seg-info">
-          ${fmt(s.start, true)} → ${fmt(s.end, true)}
-          <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
+          <input class="seg-label" data-idx="${i}" placeholder="Name segment ${i + 1}" maxlength="80" aria-label="Segment ${i + 1} label">
+          <div class="seg-times">
+            ${fmt(s.start, true)} → ${fmt(s.end, true)}
+            <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
+          </div>
         </div>
         <div class="seg-btns">
           <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
@@ -997,6 +1019,24 @@
         </div>
       </div>
     `).join('');
+
+    list.querySelectorAll('.seg-label').forEach(inp => {
+      const idx = +inp.dataset.idx;
+      inp.value = segments[idx].label ?? '';
+      // commit on blur — `change` fires when value differs from focus-time value
+      inp.addEventListener('change', () => {
+        segments[idx].label = inp.value;
+        scheduleSegmentSave();
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+        else if (e.key === 'Escape') {
+          e.preventDefault();
+          inp.value = segments[idx].label ?? '';  // restore from committed state
+          inp.blur();
+        }
+      });
+    });
   }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
