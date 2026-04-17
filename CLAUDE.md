@@ -6,9 +6,13 @@ This file governs **how** backlog items in [BACKLOG.md](BACKLOG.md) get built an
 
 ## 1. Architecture invariants — do not change without explicit approval
 
-- **Single-page vanilla JS.** No framework (React, Vue, Svelte, etc.). No bundler. No TypeScript compile step.
-- **Single HTML file** at `public/index.html` holds markup, CSS, and JS. Do not split into multiple files unless the file exceeds ~2500 lines *and* the user approves the split.
-- **Storage = flat JSON** in `data/`. No database. No ORM. Reads/writes go through `fs.promises`.
+- **Single-page vanilla JS.** No framework (React, Vue, Svelte, etc.). No bundler. No TypeScript compile step. No ESM modules — one classic `<script>` tag so `onclick="foo()"` works against top-level function declarations.
+- **Three static files** in `public/`:
+  - `index.html` — markup only
+  - `styles.css` — all styling
+  - `app.js` — all client JS (globals + function declarations, loaded via `<script src="/app.js">`)
+  Do not split `app.js` further (e.g. `player.js`, `library.js`) unless it exceeds ~2500 lines *and* the user approves.
+- **Storage = flat JSON** in `data/`. No database. No ORM. Reads/writes go through `fs.promises`. Fixtures at `data/.fixtures/pre-<taskId>/` are checked in via a `!data/.fixtures/` exception in `.gitignore`.
 - **Server stays Express 5 + `youtube-dl-exec`.** No extra deps unless a backlog item explicitly calls for one and the user approves.
 - **Client-side state is the source of truth during a session.** Persist on meaningful events (create, edit, delete, pause), not on every keystroke — debounce text inputs 400ms.
 
@@ -35,7 +39,7 @@ Every change to `library.json`, `segments.json`, or a new `data/*.json` file **m
 
 1. **Be additive.** New fields are optional (`field?:`). Never rename or remove existing fields in the same change.
 2. **Load old data without throwing.** On read, missing fields get explicit defaults in a single normalization function (one per file, e.g. `normalizeSegment(raw)`). Do not sprinkle `?? default` across the codebase.
-3. **Round-trip test manually before commit.** Load the app against a pre-change `data/` snapshot (keep one at `data/.fixtures/pre-<taskId>/`), verify nothing is lost, save, diff.
+3. **Round-trip test manually before commit.** Keep a local pre-change snapshot of `data/*.json` at `data/.fixtures/pre-<taskId>/`, load the app against it, verify nothing is lost, save, diff. `data/` is gitignored — fixtures are a per-clone local tool, not a shared artifact. Delete the snapshot directory after the task lands.
 4. **Never write partial objects.** Always write the whole normalized file atomically: write to `*.tmp`, then rename.
 
 If a schema change is genuinely breaking, it's a Tier 3 conversation — stop and ask.

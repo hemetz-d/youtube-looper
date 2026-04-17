@@ -10,7 +10,9 @@ yarn-error.log*
 # Downloaded videos
 public/videos/*
 
-# Persisted app data (library index, segments, cookies)
+# Persisted app data (library index, segments, cookies). Includes
+# data/.fixtures/* — schema-migration snapshots are a local-only tool,
+# not something the repo needs to carry.
 data/
 
 # Logs
