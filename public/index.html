@@ -641,7 +641,7 @@
       background: #7c6fff22; color: #e6e6f0;
     }
 
-    /* ── Collections ─────────────────────────────────────────────────────── */
+    /* ── Collections / filter ─────────────────────────────────────────────── */
     .coll-panel {
       background: #12121c;
       border: 1px solid #22223a;
@@ -649,14 +649,39 @@
       padding: 10px 14px;
     }
     .coll-panel-header {
-      display: flex; justify-content: space-between; align-items: center;
       font-size: 11px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.8px;
       color: #3a3a5a;
       margin-bottom: 8px;
     }
-    .coll-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+    .coll-filter-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      min-height: 28px;
+    }
+    .coll-filter-label {
+      font-size: 11px; color: #5a5a7a;
+      padding-top: 5px; flex-shrink: 0;
+    }
+    #filterTagRow { flex: 1; }
+
+    .coll-match-row {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 12px; color: #8a8aa5;
+      min-height: 22px; margin-top: 4px;
+    }
+    .coll-match-count-hit { color: #cbc4ff; }
+    .coll-match-count-miss { color: #ff4466aa; }
+    .coll-saved-label { color: #22c55e; font-size: 11px; font-style: italic; }
+
+    .coll-list {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid #1a1a28;
+      min-height: 28px;
+    }
     .coll-empty { font-size: 12px; color: #33335a; font-style: italic; }
+
     .coll-chip {
       display: inline-flex; align-items: center; gap: 6px;
       background: #1c1c2e; color: #a0a0be;
@@ -673,23 +698,27 @@
     }
     .coll-chip .coll-del:hover { color: #ff4466; }
 
-    .coll-new {
-      display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
-      margin-top: 8px; padding-top: 8px;
-      border-top: 1px solid #1a1a28;
+    .coll-save-btn {
+      background: #7c6fff22; color: #cbc4ff;
+      border: 1px solid #7c6fff44;
+      border-radius: 4px; padding: 2px 10px;
+      font-size: 11px; cursor: pointer;
+      transition: filter 0.1s;
     }
-    .coll-new-name {
-      background: transparent;
-      border: 1px solid #22223a;
-      border-radius: 6px;
+    .coll-save-btn:hover { filter: brightness(1.15); }
+    .coll-save-btn.cancel { background: transparent; color: #5a5a7a; border-color: #22223a; }
+
+    .coll-name-input {
+      background: #0d0d14;
+      border: 1px solid #7c6fff;
+      border-radius: 4px;
       color: #e6e6f0;
       font-family: inherit;
       font-size: 12px;
-      padding: 3px 8px;
+      padding: 2px 8px;
       outline: none;
-      width: 12ch;
+      width: 14ch;
     }
-    .coll-new-name:focus { border-color: #7c6fff; }
 
     /* dim non-matching library entries when a collection is active */
     .lib-item.dim { opacity: 0.32; }
@@ -741,17 +770,14 @@
   <!-- Collections -->
   <div class="coll-panel" id="collPanel" style="display:none">
     <div class="coll-panel-header">
-      <span>Collections</span>
-      <button class="btn-danger-ghost" onclick="toggleCollNew()" id="collNewBtn">+ New</button>
+      <span>Filter Library</span>
     </div>
-    <div class="coll-list" id="collList">
-      <div class="coll-empty">No collections yet.</div>
+    <div class="coll-filter-row">
+      <span class="coll-filter-label">Tags:</span>
+      <div class="tag-row" id="filterTagRow"></div>
     </div>
-    <div class="coll-new" id="collNew" style="display:none">
-      <input class="coll-new-name" id="collNewName" placeholder="Name" maxlength="80" aria-label="Collection name">
-      <input class="coll-new-name" id="collNewTags" placeholder="tags (space-separated)" style="width:20ch" aria-label="Collection query tags">
-      <button class="btn-danger-ghost" onclick="submitNewColl()">Save</button>
-    </div>
+    <div class="coll-match-row" id="collMatchRow"></div>
+    <div class="coll-list" id="collList"></div>
   </div>
 
   <div class="video-wrap" id="videoWrap">
@@ -841,7 +867,8 @@
   let libraryData     = [];
   let allTags         = [];       // autocomplete source (server union)
   let collections     = [];       // saved collections
-  let activeCollId    = null;     // currently-applied collection
+  let activeFilter    = [];       // current tag filter (string[])
+  let activeCollId    = null;     // saved collection id that matches activeFilter exactly, if any
 
   // ── Init ──────────────────────────────────────────────────────────────────
   loadLibrary();
@@ -1456,10 +1483,8 @@
 
   function renderTagRow(row) {
     const tags = getVideoTags();
-    const activeQuery = activeCollId
-      ? (collections.find(c => c.id === activeCollId)?.query ?? []).map(t => t.toLowerCase())
-      : [];
-    const isMatch = (t) => activeQuery.includes(t.toLowerCase());
+    const filterLower = activeFilter.map(t => t.toLowerCase());
+    const isMatch = (t) => filterLower.includes(t.toLowerCase());
 
     row.innerHTML = tags.map((t, i) => `
       <span class="tag-chip${isMatch(t) ? ' match' : ''}">
@@ -1528,20 +1553,22 @@
   }
 
   function renderAllTagRows() {
-    document.querySelectorAll('.tag-row').forEach(renderTagRow);
+    // Only the video-notes tag row uses renderTagRow.
+    // The filter row (#filterTagRow) renders via renderFilterRow.
+    document.querySelectorAll('#videoTagRow.tag-row').forEach(renderTagRow);
   }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // ── Collections ───────────────────────────────────────────────────────────
+  // ── Collections / Filter ──────────────────────────────────────────────────
   async function loadCollections() {
     try {
       collections = await (await fetch('/collections')).json();
     } catch { collections = []; }
-    renderCollections();
     document.getElementById('collPanel').style.display = 'block';
+    refreshFilter();
   }
 
   function collMatchCounts(query) {
@@ -1554,25 +1581,178 @@
     return { videos };
   }
 
+  // Called whenever activeFilter changes — rerenders everything that depends on it.
+  function refreshFilter() {
+    // Derive activeCollId: which saved collection's query matches the current filter exactly?
+    activeCollId = null;
+    if (activeFilter.length) {
+      const filterKey = [...activeFilter].map(t => t.toLowerCase()).sort().join('\0');
+      const hit = collections.find(c => {
+        const ckey = [...c.query].map(t => t.toLowerCase()).sort().join('\0');
+        return ckey === filterKey;
+      });
+      if (hit) activeCollId = hit.id;
+    }
+    renderFilterRow();
+    renderMatchRow();
+    renderCollections();
+    applyCollectionFilter();
+  }
+
+  // Filter tag row — a chip picker fed by allTags, writes to activeFilter.
+  function renderFilterRow() {
+    const row = document.getElementById('filterTagRow');
+    row.innerHTML = activeFilter.map((t, i) => `
+      <span class="tag-chip match">
+        ${escapeHtml(t)}<span class="tag-x" data-i="${i}" title="Remove">×</span>
+      </span>
+    `).join('') + `<input class="tag-input" placeholder="+ pick a tag" maxlength="${MAX_TAG_LEN}" aria-label="Add filter tag"><div class="tag-suggest"></div>`;
+
+    row.querySelectorAll('.tag-x').forEach(x => {
+      x.addEventListener('click', () => {
+        const i = +x.dataset.i;
+        activeFilter = activeFilter.filter((_, n) => n !== i);
+        refreshFilter();
+      });
+    });
+
+    const inp = row.querySelector('.tag-input');
+    const sug = row.querySelector('.tag-suggest');
+    let hi = -1;
+
+    const commit = (raw) => {
+      const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
+      if (!trimmed) return;
+      if (activeFilter.some(t => t.toLowerCase() === trimmed.toLowerCase())) return;
+      // Use canonical casing from allTags when available
+      const canonical = allTags.find(t => t.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+      activeFilter.push(canonical);
+      refreshFilter();
+      setTimeout(() => document.querySelector('#filterTagRow .tag-input')?.focus(), 0);
+    };
+
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim().toLowerCase();
+      const current = activeFilter.map(t => t.toLowerCase());
+      const matches = allTags.filter(t =>
+        t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
+      ).slice(0, 8);
+      if (!q || !matches.length) { sug.classList.remove('open'); return; }
+      hi = -1;
+      sug.innerHTML = matches.map((t, i) =>
+        `<div class="tag-suggest-item" data-tag="${escapeHtml(t)}" data-i="${i}">${escapeHtml(t)}</div>`
+      ).join('');
+      sug.classList.add('open');
+      sug.querySelectorAll('.tag-suggest-item').forEach(item => {
+        item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); });
+      });
+    });
+    inp.addEventListener('keydown', e => {
+      const items = [...sug.querySelectorAll('.tag-suggest-item')];
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
+        commit(pick);
+      } else if (e.key === 'Escape') {
+        sug.classList.remove('open'); inp.blur();
+      } else if (e.key === 'ArrowDown' && items.length) {
+        e.preventDefault(); hi = (hi + 1) % items.length;
+        items.forEach((it, i) => it.classList.toggle('active', i === hi));
+      } else if (e.key === 'ArrowUp' && items.length) {
+        e.preventDefault(); hi = (hi - 1 + items.length) % items.length;
+        items.forEach((it, i) => it.classList.toggle('active', i === hi));
+      }
+    });
+    inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
+  }
+
+  // Match-count + Save-as row.
+  function renderMatchRow() {
+    const row = document.getElementById('collMatchRow');
+    if (!activeFilter.length) {
+      row.innerHTML = `<span style="color:#33335a;font-style:italic">Pick one or more tags to filter the library.</span>`;
+      return;
+    }
+    const { videos } = collMatchCounts(activeFilter);
+    const countClass = videos ? 'coll-match-count-hit' : 'coll-match-count-miss';
+    let saveHtml = '';
+    if (activeCollId) {
+      const coll = collections.find(c => c.id === activeCollId);
+      saveHtml = `<span class="coll-saved-label">· saved as "${escapeHtml(coll.name)}"</span>`;
+    } else {
+      saveHtml = `<button class="coll-save-btn" id="collSaveBtn">Save as…</button>`;
+    }
+    row.innerHTML =
+      `<span class="${countClass}">${videos} video${videos === 1 ? '' : 's'} match</span>` +
+      saveHtml +
+      ` <button class="coll-save-btn cancel" id="collClearBtn" title="Clear filter">Clear</button>`;
+
+    document.getElementById('collSaveBtn')?.addEventListener('click', showSaveForm);
+    document.getElementById('collClearBtn').addEventListener('click', () => {
+      activeFilter = [];
+      refreshFilter();
+    });
+  }
+
+  function showSaveForm() {
+    const row = document.getElementById('collMatchRow');
+    row.innerHTML = `
+      <input class="coll-name-input" id="collNameInput" placeholder="Collection name" maxlength="80" aria-label="Collection name">
+      <button class="coll-save-btn" id="collSaveConfirmBtn">Save</button>
+      <button class="coll-save-btn cancel" id="collSaveCancelBtn">Cancel</button>
+    `;
+    const nameInp = document.getElementById('collNameInput');
+    nameInp.focus();
+    nameInp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); submitNewColl(); }
+      else if (e.key === 'Escape') renderMatchRow();
+    });
+    document.getElementById('collSaveConfirmBtn').addEventListener('click', submitNewColl);
+    document.getElementById('collSaveCancelBtn').addEventListener('click', renderMatchRow);
+  }
+
+  async function submitNewColl() {
+    const nameEl = document.getElementById('collNameInput');
+    const name = (nameEl?.value || '').trim();
+    if (!name) { setStatus('Collection needs a name'); nameEl?.focus(); return; }
+    if (!activeFilter.length) { setStatus('Pick at least one tag first'); return; }
+    const r = await fetch('/collections', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, query: activeFilter })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save collection'); return; }
+    const created = await r.json();
+    const idx = collections.findIndex(c => c.id === created.id);
+    if (idx >= 0) collections[idx] = created; else collections.push(created);
+    setStatus(`💾 Saved "${created.name}"`);
+    refreshFilter(); // will recompute activeCollId → now matches the new entry
+  }
+
   function renderCollections() {
     const list = document.getElementById('collList');
     if (!collections.length) {
-      list.innerHTML = '<div class="coll-empty">No collections yet.</div>';
+      list.innerHTML = '<div class="coll-empty">No saved collections yet — pick tags above and "Save as…".</div>';
       return;
     }
     list.innerHTML = collections.map(c => {
       const { videos } = collMatchCounts(c.query);
-      return `<span class="coll-chip${c.id === activeCollId ? ' active' : ''}" data-id="${c.id}">
-        ${escapeHtml(c.name)} <span class="coll-count">${videos} video${videos === 1 ? '' : 's'}</span>
+      return `<span class="coll-chip${c.id === activeCollId ? ' active' : ''}" data-id="${c.id}" title="Click to load this filter">
+        ${escapeHtml(c.name)}
+        <span class="coll-count">${videos}</span>
         <span class="coll-del" data-id="${c.id}" title="Delete">×</span>
       </span>`;
     }).join('');
     list.querySelectorAll('.coll-chip').forEach(chip => {
       chip.addEventListener('click', e => {
         if (e.target.classList.contains('coll-del')) return;
-        activeCollId = (activeCollId === chip.dataset.id) ? null : chip.dataset.id;
-        renderCollections();
-        applyCollectionFilter();
+        const id = chip.dataset.id;
+        if (activeCollId === id) {
+          activeFilter = [];
+        } else {
+          const coll = collections.find(c => c.id === id);
+          activeFilter = coll ? [...coll.query] : [];
+        }
+        refreshFilter();
       });
     });
     list.querySelectorAll('.coll-del').forEach(x => {
@@ -1582,43 +1762,14 @@
         if (!confirm('Delete this collection?')) return;
         const r = await fetch('/collections/' + id, { method: 'DELETE' });
         if (!r.ok) { setStatus('❌ Delete failed'); return; }
-        if (activeCollId === id) activeCollId = null;
         collections = collections.filter(c => c.id !== id);
-        renderCollections();
-        applyCollectionFilter();
+        refreshFilter();
       });
     });
   }
 
-  function toggleCollNew() {
-    const box = document.getElementById('collNew');
-    const open = box.style.display === 'none';
-    box.style.display = open ? 'flex' : 'none';
-    if (open) document.getElementById('collNewName').focus();
-  }
-
-  async function submitNewColl() {
-    const name = document.getElementById('collNewName').value.trim();
-    const query = document.getElementById('collNewTags').value
-      .split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-    if (!name || !query.length) { setStatus('Collection needs a name and ≥1 tag'); return; }
-    const r = await fetch('/collections', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, query })
-    });
-    if (!r.ok) { setStatus('❌ Failed to save collection'); return; }
-    const created = await r.json();
-    const idx = collections.findIndex(c => c.id === created.id);
-    if (idx >= 0) collections[idx] = created; else collections.push(created);
-    document.getElementById('collNewName').value = '';
-    document.getElementById('collNewTags').value = '';
-    toggleCollNew();
-    renderCollections();
-  }
-
   function applyCollectionFilter() {
-    const coll = collections.find(c => c.id === activeCollId);
-    const q = (coll?.query ?? []).map(t => t.toLowerCase());
+    const q = activeFilter.map(t => t.toLowerCase());
     const matches = (tags) => {
       if (!q.length) return true;
       const lower = (tags ?? []).map(t => t.toLowerCase());
@@ -1627,7 +1778,7 @@
     document.querySelectorAll('.lib-item').forEach((el, i) => {
       el.classList.toggle('dim', !matches(libraryData[i]?.tags));
     });
-    // re-render video tag row to refresh .match highlights
+    // re-render video tag row match highlights
     renderAllTagRows();
   }
 
