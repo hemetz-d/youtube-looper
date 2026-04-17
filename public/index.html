@@ -3,124 +3,151 @@
 <head>
   <meta charset="UTF-8">
   <title>Video Looper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-<div class="app">
+<body><div class="app">
 
-  <header>
-    <span style="font-size:20px;line-height:1">▶</span>
-    <h1>Video Looper</h1>
+  <!-- ── Header toolbar ──────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="app-header-brand">
+      <span class="app-logo" aria-hidden="true">▶</span>
+      <h1>Video Looper</h1>
+    </div>
+    <div class="app-header-actions">
+      <span id="status" class="header-status"></span>
+      <button class="btn-download-toggle" id="downloadToggleBtn"
+              onclick="toggleDownloadPanel()" aria-expanded="false"
+              aria-controls="downloadDrawer">↓ Download</button>
+    </div>
   </header>
 
-  <div class="url-bar">
-    <input type="text" id="urlInput" placeholder="Paste a YouTube URL…" />
-    <button class="btn btn-primary" id="loadBtn" onclick="loadVideo()">LOAD</button>
-  </div>
-
-  <!-- Cookies -->
-  <input type="file" id="cookiesInput" accept=".txt" style="display:none" onchange="cookiesFileChosen(this)">
-  <div class="cookies-bar" id="cookiesBar" onclick="document.getElementById('cookiesInput').click()"
-       ondragover="cookiesDragOver(event)" ondragleave="cookiesDragLeave(event)" ondrop="cookiesDrop(event)">
-    <span class="cookies-icon">🍪</span>
-    <span class="cookies-text" id="cookiesText">No cookies.txt — click or drop file to enable downloads</span>
-    <button class="cookies-remove" id="cookiesRemove" style="display:none"
-            onclick="event.stopPropagation(); removeCookies()" title="Remove cookies.txt">✕</button>
-  </div>
-
-  <!-- Download progress -->
-  <div class="progress-wrap" id="progressWrap" style="display:none">
-    <div class="progress-fill" id="progressFill"></div>
-  </div>
-  <div class="progress-label" id="progressLabel"></div>
-
-  <div id="status"></div>
-
-  <!-- Library -->
-  <div class="library-panel" id="libraryPanel" style="display:none">
-    <div class="library-header" id="libraryHeader" onclick="toggleLibrary()">
-      <span class="library-title">
-        Library
-        <span class="library-count" id="libraryCount">0</span>
-      </span>
-      <span class="library-chevron" id="libraryChevron">▼</span>
-    </div>
-    <div class="library-list" id="libraryList" style="display:none"></div>
-  </div>
-
-  <!-- Collections -->
-  <div class="coll-panel" id="collPanel" style="display:none">
-    <div class="coll-panel-header">
-      <span>Filter Library</span>
-    </div>
-    <div class="coll-filter-row">
-      <span class="coll-filter-label">Tags:</span>
-      <div class="tag-row" id="filterTagRow"></div>
-    </div>
-    <div class="coll-match-row" id="collMatchRow"></div>
-    <div class="coll-list" id="collList"></div>
-  </div>
-
-  <div class="video-wrap" id="videoWrap">
-    <video id="player" preload="metadata"></video>
-    <button class="fs-overlay-btn" id="fsOverlayBtn" onclick="toggleFullscreen()" title="Toggle fullscreen (F)">⛶</button>
-  </div>
-
-  <div class="panel" id="controlPanel" style="display:none">
-    <div class="timeline" id="timeline">
-      <div class="playhead" id="playhead" style="left:0"></div>
-    </div>
-    <div class="time-row">
-      <span id="tLeft">0:00</span>
-      <span id="tRight">0:00</span>
-    </div>
-    <div class="controls">
-      <span class="time-big" id="timeBig">0:00.0 / 0:00</span>
-      <span class="flex1"></span>
-      <button class="btn-in"  onclick="setIn()">SET IN &nbsp;<kbd>I</kbd></button>
-      <button class="btn-out" onclick="setOut()">SET OUT <kbd>O</kbd></button>
-      <button class="btn-loop" id="loopBtn" onclick="toggleLoop()">⟳ LOOP</button>
-      <button class="btn-fs" id="fsBtn" onclick="toggleFullscreen()">⛶ FULL <kbd>F</kbd></button>
-    </div>
-    <!-- Speed controls -->
-    <div class="speed-row">
-      <span class="speed-label">Speed <span id="speedValue" style="color:#7c6fff;margin-left:4px">1.00×</span></span>
-      <button class="speed-btn" onclick="setSpeed(0.5)">0.5×</button>
-      <button class="speed-btn" onclick="setSpeed(0.6)">0.6×</button>
-      <button class="speed-btn" onclick="setSpeed(0.7)">0.7×</button>
-      <button class="speed-btn" onclick="setSpeed(0.8)">0.8×</button>
-      <button class="speed-btn" onclick="setSpeed(0.9)">0.9×</button>
-      <button class="speed-btn active" onclick="setSpeed(1)">1×</button>
-      <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
-    </div>
-    <div class="shortcuts">
-      <span><kbd>Space</kbd> play/pause</span>
-      <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
-      <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
-      <span><kbd>L</kbd> loop</span>
-      <span><kbd>F</kbd> fullscreen</span>
-      <span><kbd>-</kbd> <kbd>=</kbd> speed</span>
-      <span><kbd>0</kbd> reset speed</span>
+  <!-- ── Download drawer (hidden by default) ──────────────────────── -->
+  <div class="download-drawer" id="downloadDrawer" hidden>
+    <div class="download-drawer-inner">
+      <div class="url-bar">
+        <input type="text" id="urlInput" placeholder="Paste a YouTube URL…" />
+        <button class="btn btn-primary" id="loadBtn" onclick="loadVideo()">LOAD</button>
+      </div>
+      <input type="file" id="cookiesInput" accept=".txt" style="display:none"
+             onchange="cookiesFileChosen(this)">
+      <div class="cookies-bar" id="cookiesBar"
+           onclick="document.getElementById('cookiesInput').click()"
+           ondragover="cookiesDragOver(event)" ondragleave="cookiesDragLeave(event)"
+           ondrop="cookiesDrop(event)">
+        <span class="cookies-icon">🍪</span>
+        <span class="cookies-text" id="cookiesText">No cookies.txt — click or drop file to enable downloads</span>
+        <button class="cookies-remove" id="cookiesRemove" style="display:none"
+                onclick="event.stopPropagation(); removeCookies()" title="Remove cookies.txt">✕</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap" style="display:none">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-label" id="progressLabel"></div>
     </div>
   </div>
 
-  <div class="seg-panel" id="segPanel" style="display:none">
-    <div class="seg-panel-header">
-      <span style="display:flex;align-items:center;gap:8px">
-        Segments
-        <span class="save-dot" id="saveDot" title="Saved"></span>
-      </span>
-      <button class="btn-danger-ghost" onclick="clearAll()">Clear All</button>
-    </div>
-    <div id="segList">
-      <div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>
-    </div>
-  </div>
+  <!-- ── Body: sidebar + main ─────────────────────────────────────── -->
+  <div class="app-body">
 
-  <div class="notes-panel" id="notesPanel" style="display:none">
-    <div class="notes-panel-header">Video Notes</div>
-    <div class="tag-row" id="videoTagRow" data-scope="video"></div>
-    <textarea class="video-notes" id="videoNotes" placeholder="Tuning, key, overall observations…" maxlength="8000" aria-label="Video notes" style="margin-top:8px"></textarea>
+    <aside class="sidebar">
+      <div class="sidebar-search">
+        <input type="text" id="librarySearch" placeholder="Search…"
+               aria-label="Search library" autocomplete="off" />
+      </div>
+
+      <div class="library-panel" id="libraryPanel" style="display:none">
+        <div class="library-header" id="libraryHeader" onclick="toggleLibrary()">
+          <span class="library-title">
+            Library
+            <span class="library-count" id="libraryCount">0</span>
+          </span>
+          <span class="library-chevron" id="libraryChevron">▼</span>
+        </div>
+        <div class="library-list" id="libraryList" style="display:none"></div>
+      </div>
+
+      <div class="coll-panel" id="collPanel" style="display:none">
+        <div class="coll-panel-header"><span>Filter Library</span></div>
+        <div class="coll-filter-row">
+          <span class="coll-filter-label">Tags:</span>
+          <div class="tag-row" id="filterTagRow"></div>
+        </div>
+        <div class="coll-match-row" id="collMatchRow"></div>
+        <div class="coll-list" id="collList"></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+
+      <div class="video-wrap" id="videoWrap">
+        <video id="player" preload="metadata"></video>
+        <button class="fs-overlay-btn" id="fsOverlayBtn"
+                onclick="toggleFullscreen()" title="Toggle fullscreen (F)">⛶</button>
+      </div>
+
+      <div class="panel" id="controlPanel" style="display:none">
+        <div class="timeline" id="timeline">
+          <div class="playhead" id="playhead" style="left:0"></div>
+        </div>
+        <div class="time-row">
+          <span id="tLeft">0:00</span>
+          <span id="tRight">0:00</span>
+        </div>
+        <div class="controls">
+          <span class="time-big" id="timeBig">0:00.0 / 0:00</span>
+          <span class="flex1"></span>
+          <button class="btn-in"  onclick="setIn()">SET IN &nbsp;<kbd>I</kbd></button>
+          <button class="btn-out" onclick="setOut()">SET OUT <kbd>O</kbd></button>
+          <button class="btn-loop" id="loopBtn" onclick="toggleLoop()">⟳ LOOP</button>
+          <button class="btn-fs" id="fsBtn" onclick="toggleFullscreen()">⛶ FULL <kbd>F</kbd></button>
+        </div>
+        <div class="speed-row">
+          <span class="speed-label">Speed <span id="speedValue" style="color:var(--accent);margin-left:4px">1.00×</span></span>
+          <button class="speed-btn" onclick="setSpeed(0.5)">0.5×</button>
+          <button class="speed-btn" onclick="setSpeed(0.6)">0.6×</button>
+          <button class="speed-btn" onclick="setSpeed(0.7)">0.7×</button>
+          <button class="speed-btn" onclick="setSpeed(0.8)">0.8×</button>
+          <button class="speed-btn" onclick="setSpeed(0.9)">0.9×</button>
+          <button class="speed-btn active" onclick="setSpeed(1)">1×</button>
+          <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
+        </div>
+        <div class="shortcuts">
+          <span><kbd>Space</kbd> play/pause</span>
+          <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
+          <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
+          <span><kbd>L</kbd> loop</span>
+          <span><kbd>F</kbd> fullscreen</span>
+          <span><kbd>-</kbd> <kbd>=</kbd> speed</span>
+          <span><kbd>0</kbd> reset speed</span>
+          <span><kbd>D</kbd> download</span>
+        </div>
+      </div>
+
+      <div class="seg-panel" id="segPanel" style="display:none">
+        <div class="seg-panel-header">
+          <span style="display:flex;align-items:center;gap:8px">
+            Segments
+            <span class="save-dot" id="saveDot" title="Saved"></span>
+          </span>
+          <button class="btn-danger-ghost" onclick="clearAll()">Clear All</button>
+        </div>
+        <div id="segList">
+          <div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>
+        </div>
+      </div>
+
+      <div class="notes-panel" id="notesPanel" style="display:none">
+        <div class="notes-panel-header">Video Notes</div>
+        <div class="tag-row" id="videoTagRow" data-scope="video"></div>
+        <textarea class="video-notes" id="videoNotes"
+                  placeholder="Tuning, key, overall observations…"
+                  maxlength="8000" aria-label="Video notes"
+                  style="margin-top:8px"></textarea>
+      </div>
+
+    </main>
   </div>
 
 </div>

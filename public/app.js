@@ -129,6 +129,14 @@ function renderLibrary() {
   panel.style.display = 'block';
   count.textContent = libraryData.length;
 
+  // Open the list on first render so the sidebar shows songs immediately
+  if (!libraryOpen) {
+    libraryOpen = true;
+    list.style.display = 'block';
+    document.getElementById('libraryHeader').classList.add('open');
+    document.getElementById('libraryChevron').classList.add('open');
+  }
+
   list.innerHTML = libraryData.map((v, i) => `
     <div class="lib-item ${v.id === currentVideoId ? 'active' : ''}" onclick="openFromLibrary(${i})">
       <span class="lib-icon">${v.id === currentVideoId ? '▶' : '○'}</span>
@@ -605,6 +613,7 @@ document.addEventListener('keydown', e => {
     case '-': setSpeed(currentSpeed - SPEED_STEP); break;
     case '=': setSpeed(currentSpeed + SPEED_STEP); break;
     case '0': setSpeed(1); break;
+    case 'd': toggleDownloadPanel(); break;
   }
 });
 
@@ -970,6 +979,42 @@ function parseTime(str) {
 function setStatus(msg) {
   document.getElementById('status').textContent = msg;
 }
+
+// ── Download drawer ───────────────────────────────────────────────────────
+function toggleDownloadPanel() {
+  const drawer = document.getElementById('downloadDrawer');
+  const btn    = document.getElementById('downloadToggleBtn');
+  const isOpen = drawer.classList.contains('open');
+  if (isOpen) {
+    drawer.classList.remove('open');
+    btn.classList.remove('active');
+    btn.setAttribute('aria-expanded', 'false');
+    drawer.addEventListener('transitionend', () => {
+      if (!drawer.classList.contains('open')) drawer.hidden = true;
+    }, { once: true });
+  } else {
+    drawer.hidden = false;
+    requestAnimationFrame(() => {
+      drawer.classList.add('open');
+      btn.classList.add('active');
+      btn.setAttribute('aria-expanded', 'true');
+      document.getElementById('urlInput').focus();
+    });
+  }
+}
+
+// ── Library search ────────────────────────────────────────────────────────
+;(function initLibrarySearch() {
+  const inp = document.getElementById('librarySearch');
+  if (!inp) return;
+  inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    document.querySelectorAll('#libraryList .lib-item').forEach((el, i) => {
+      const title = (libraryData[i]?.title ?? '').toLowerCase();
+      el.style.display = (!q || title.includes(q)) ? '' : 'none';
+    });
+  });
+})();
 
 // ── Fullscreen ────────────────────────────────────────────────────────────
 function toggleFullscreen() {
