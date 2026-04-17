@@ -8,10 +8,11 @@ app.use(express.json());
 app.use(express.text({ type: 'text/plain', limit: '10mb' }));
 app.use(express.static('public'));
 
-const DATA_DIR      = path.join(__dirname, 'data');
-const LIBRARY_FILE  = path.join(DATA_DIR, 'library.json');
-const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
-const COOKIES_FILE  = path.join(DATA_DIR, 'cookies.txt');
+const DATA_DIR         = path.join(__dirname, 'data');
+const LIBRARY_FILE     = path.join(DATA_DIR, 'library.json');
+const SEGMENTS_FILE    = path.join(DATA_DIR, 'segments.json');
+const COLLECTIONS_FILE = path.join(DATA_DIR, 'collections.json');
+const COOKIES_FILE     = path.join(DATA_DIR, 'cookies.txt');
 
 // Strips playlist/tracking params so yt-dlp always downloads a single video.
 // Handles youtube.com/watch?v=ID&list=...  and  youtu.be/ID?si=...
@@ -42,6 +43,27 @@ function writeJSON(file, data) {
 const MAX_SEGMENT_LABEL_LEN = 80;
 const MAX_SEGMENT_NOTES_LEN = 2000;
 const MAX_VIDEO_NOTES_LEN   = 8000;
+const MAX_TAG_LEN           = 40;
+const MAX_TAGS_PER_RESOURCE = 20;
+const MAX_COLLECTION_NAME_LEN = 80;
+
+// Trim, dedupe (case-insensitive, first occurrence wins), drop empties, cap count.
+function normalizeTags(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const t of raw) {
+        if (typeof t !== 'string') continue;
+        const trimmed = t.trim().slice(0, MAX_TAG_LEN);
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(trimmed);
+        if (out.length >= MAX_TAGS_PER_RESOURCE) break;
+    }
+    return out;
+}
 
 function normalizeSegment(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -77,7 +99,20 @@ function normalizeLibraryEntry(raw) {
         const notes = raw.notes.slice(0, MAX_VIDEO_NOTES_LEN);
         if (notes.trim()) entry.notes = notes;
     }
+    const tags = normalizeTags(raw.tags);
+    if (tags.length) entry.tags = tags;
     return entry;
+}
+
+function normalizeCollection(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof raw.name !== 'string') return null;
+    const name = raw.name.trim().slice(0, MAX_COLLECTION_NAME_LEN);
+    if (!name) return null;
+    const query = normalizeTags(raw.query);
+    if (!query.length) return null;
+    const id = (typeof raw.id === 'string' && raw.id) ? raw.id : Math.random().toString(36).slice(2, 10);
+    return { id, name, query };
 }
 
 // ── SSE progress clients ──────────────────────────────────────────────────────
@@ -205,8 +240,10 @@ app.post('/library/:id', (req, res) => {
     const library = readJSON(LIBRARY_FILE, []);
     const idx = library.findIndex(v => v && v.id === id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'Not found' });
-    // Only `notes` is mutable here; id/file/title/duration stay put.
-    const merged = { ...library[idx], notes: req.body.notes };
+    // Only `notes` and `tags` are mutable here; id/file/title/duration stay put.
+    const merged = { ...library[idx] };
+    if ('notes' in req.body) merged.notes = req.body.notes;
+    if ('tags'  in req.body) merged.tags  = req.body.tags;
     const normalized = normalizeLibraryEntry(merged);
     if (!normalized) return res.status(400).json({ success: false, error: 'Invalid entry' });
     library[idx] = normalized;
@@ -246,6 +283,51 @@ app.post('/segments/:id', (req, res) => {
     all[req.params.id] = normalized;
     writeJSON(SEGMENTS_FILE, all);
     res.json(normalized);
+});
+
+// ── Tags (union across library videos) ────────────────────────────────────────
+app.get('/tags', (req, res) => {
+    const library = readJSON(LIBRARY_FILE, []);
+    const map = new Map(); // lowercase → first-seen casing
+    for (const v of library) {
+        if (!v || !Array.isArray(v.tags)) continue;
+        for (const t of normalizeTags(v.tags)) {
+            const k = t.toLowerCase();
+            if (!map.has(k)) map.set(k, t);
+        }
+    }
+    res.json([...map.values()].sort((a, b) => a.localeCompare(b)));
+});
+
+// ── Collections ───────────────────────────────────────────────────────────────
+app.get('/collections', (req, res) => {
+    const raw = readJSON(COLLECTIONS_FILE, []);
+    const list = Array.isArray(raw) ? raw.map(normalizeCollection).filter(Boolean) : [];
+    res.json(list);
+});
+
+app.post('/collections', (req, res) => {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        return res.status(400).json({ success: false, error: 'Expected JSON object body' });
+    }
+    const normalized = normalizeCollection(req.body);
+    if (!normalized) return res.status(400).json({ success: false, error: 'Invalid collection (name + non-empty query required)' });
+    const all = readJSON(COLLECTIONS_FILE, []);
+    const list = Array.isArray(all) ? all : [];
+    // If id matches an existing entry, replace it; otherwise append.
+    const existingIdx = list.findIndex(c => c && c.id === normalized.id);
+    if (existingIdx >= 0) list[existingIdx] = normalized; else list.push(normalized);
+    writeJSON(COLLECTIONS_FILE, list);
+    res.json(normalized);
+});
+
+app.delete('/collections/:id', (req, res) => {
+    const all = readJSON(COLLECTIONS_FILE, []);
+    const list = Array.isArray(all) ? all : [];
+    const next = list.filter(c => c && c.id !== req.params.id);
+    if (next.length === list.length) return res.status(404).json({ success: false, error: 'Not found' });
+    writeJSON(COLLECTIONS_FILE, next);
+    res.json({ success: true });
 });
 
 // ── Server ────────────────────────────────────────────────────────────────────
