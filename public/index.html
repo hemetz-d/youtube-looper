@@ -560,13 +560,14 @@
     </div>
     <!-- Speed controls -->
     <div class="speed-row">
-      <span class="speed-label">Speed</span>
+      <span class="speed-label">Speed <span id="speedValue" style="color:#7c6fff;margin-left:4px">1.00×</span></span>
       <button class="speed-btn" onclick="setSpeed(0.5)">0.5×</button>
-      <button class="speed-btn" onclick="setSpeed(0.75)">0.75×</button>
-      <button class="speed-btn active" id="speed-1" onclick="setSpeed(1)">1×</button>
+      <button class="speed-btn" onclick="setSpeed(0.6)">0.6×</button>
+      <button class="speed-btn" onclick="setSpeed(0.7)">0.7×</button>
+      <button class="speed-btn" onclick="setSpeed(0.8)">0.8×</button>
+      <button class="speed-btn" onclick="setSpeed(0.9)">0.9×</button>
+      <button class="speed-btn active" onclick="setSpeed(1)">1×</button>
       <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
-      <button class="speed-btn" onclick="setSpeed(1.5)">1.5×</button>
-      <button class="speed-btn" onclick="setSpeed(2)">2×</button>
     </div>
     <div class="shortcuts">
       <span><kbd>Space</kbd> play/pause</span>
@@ -574,6 +575,8 @@
       <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
       <span><kbd>L</kbd> loop</span>
       <span><kbd>F</kbd> fullscreen</span>
+      <span><kbd>-</kbd> <kbd>=</kbd> speed</span>
+      <span><kbd>0</kbd> reset speed</span>
     </div>
   </div>
 
@@ -593,7 +596,10 @@
 </div>
 <script>
   const COLORS  = ['#7c6fff','#22c55e','#f97316','#06b6d4','#ec4899','#facc15','#8b5cf6','#10b981'];
-  const SPEEDS   = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  const SPEED_PRESETS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25];
+  const SPEED_STEP = 0.05;
+  const SPEED_MIN  = 0.25;
+  const SPEED_MAX  = 2;
 
   const video   = document.getElementById('player');
   const tl      = document.getElementById('timeline');
@@ -877,11 +883,13 @@
 
   // ── Playback speed ────────────────────────────────────────────────────────
   function setSpeed(s) {
+    s = Math.round(Math.max(SPEED_MIN, Math.min(SPEED_MAX, s)) * 100) / 100;
     currentSpeed = s;
     video.playbackRate = s;
     document.querySelectorAll('.speed-btn').forEach(btn => {
       btn.classList.toggle('active', parseFloat(btn.textContent) === s);
     });
+    document.getElementById('speedValue').textContent = s.toFixed(2) + '×';
   }
 
   function resetSpeed() {
@@ -1013,6 +1021,9 @@
       case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
       case 'l': toggleLoop(); break;
       case 'f': toggleFullscreen(); break;
+      case '-': setSpeed(currentSpeed - SPEED_STEP); break;
+      case '=': setSpeed(currentSpeed + SPEED_STEP); break;
+      case '0': setSpeed(1); break;
     }
   });
 
