@@ -38,3 +38,5 @@ YouTube requires authentication. Export a `cookies.txt` from your browser using 
 | `←` / `→` | Seek ±5s |
 | `,` / `.` | Seek ±0.1s |
 | `L` | Toggle loop |
+| `↑` / `↓` | Volume ±5% |
+| `M` | Mute / unmute |

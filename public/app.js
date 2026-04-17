@@ -3,6 +3,9 @@ const SPEED_PRESETS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25];
 const SPEED_STEP = 0.05;
 const SPEED_MIN  = 0.25;
 const SPEED_MAX  = 2;
+const VOL_STEP   = 0.05;
+const VOL_KEY    = 'yl-volume';
+const MUTE_KEY   = 'yl-muted';
 
 const video   = document.getElementById('player');
 const tl      = document.getElementById('timeline');
@@ -29,6 +32,7 @@ loadLibrary();
 loadCollections();
 loadAllTags();
 checkCookies();
+initVolume();
 
 // ── Cookies ───────────────────────────────────────────────────────────────
 async function checkCookies() {
@@ -376,6 +380,51 @@ function resetSpeed() {
   setSpeed(1);
 }
 
+// ── Volume ────────────────────────────────────────────────────────────────
+function initVolume() {
+  const savedVol = parseFloat(localStorage.getItem(VOL_KEY));
+  const savedMuted = localStorage.getItem(MUTE_KEY) === '1';
+  const v = Number.isFinite(savedVol) ? Math.min(1, Math.max(0, savedVol)) : 1;
+  video.volume = v;
+  video.muted = savedMuted;
+  renderVolumeUI();
+}
+
+function setVolume(v) {
+  v = Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+  video.volume = v;
+  if (v > 0 && video.muted) video.muted = false;
+  localStorage.setItem(VOL_KEY, String(v));
+  localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
+  renderVolumeUI();
+}
+
+function toggleMute() {
+  video.muted = !video.muted;
+  if (!video.muted && video.volume === 0) setVolume(0.5);
+  else {
+    localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
+    renderVolumeUI();
+  }
+}
+
+function onVolSlider(pct) {
+  setVolume(parseInt(pct, 10) / 100);
+}
+
+function renderVolumeUI() {
+  const slider = document.getElementById('volSlider');
+  const value  = document.getElementById('volValue');
+  const btn    = document.getElementById('volMuteBtn');
+  const pct    = Math.round(video.volume * 100);
+  const muted  = video.muted || video.volume === 0;
+  slider.value = pct;
+  value.textContent = muted ? 'muted' : pct + '%';
+  btn.classList.toggle('muted', muted);
+  btn.textContent = muted ? '🔇' : (video.volume < 0.5 ? '🔈' : '🔊');
+  btn.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
+}
+
 // ── Loop ──────────────────────────────────────────────────────────────────
 function toggleLoop() {
   if (!segments.length) { setStatus('Add a segment first'); return; }
@@ -606,6 +655,15 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       video.currentTime = Math.min(video.duration, video.currentTime + 5);
       break;
+    case 'ArrowUp':
+      e.preventDefault();
+      setVolume(video.volume + VOL_STEP);
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      setVolume(video.volume - VOL_STEP);
+      break;
+    case 'm': toggleMute(); break;
     case ',': video.currentTime = Math.max(0, video.currentTime - 0.1); break;
     case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
     case 'l': toggleLoop(); break;
