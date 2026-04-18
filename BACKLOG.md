@@ -63,6 +63,19 @@ Each of these is a scope jump. Open a discussion in the PR *before* writing code
 - [ ] **T3.2 — Beyond YouTube** — local file upload first (cheap). Spotify/Apple Music require licensed APIs and won't return raw audio. Stem separation (Demucs) is its own product.
 - [ ] **T3.3 — Musician-specific tooling** — metronome overlay, pitch-preserving tempo (already partially via `playbackRate`; true pitch-preserve needs Web Audio + a time-stretch lib), tab/chord attachments. Each ships independently.
 
+- [ ] **T3.4 — Stage reverb mode**
+  Apply a room-simulation reverb to the video audio so practice feels like playing in a hall, club, or stadium. Purely an effect — does not alter the source file.
+  *Tech:* route the `<video>` element through the Web Audio API (`AudioContext` + `MediaElementAudioSourceNode`). No new npm dependency.
+  *Presets:* off (default) · small room · hall · stadium · cathedral. Implementation can be either convolution (ConvolverNode + short impulse-response `.wav` assets under `public/ir/`) or algorithmic (chained `DelayNode` / `BiquadFilterNode` / feedback) — decide in the PR. Convolution sounds better; algorithmic ships zero binary assets.
+  *UI:* a compact preset dropdown in the player toolbar next to the volume slider, with a wet/dry mix slider. Visible label + `aria-label`. "Off" preset fully bypasses the graph (no CPU cost, bit-identical audio).
+  *Keyboard:* `R` cycles presets (off → small room → hall → stadium → cathedral → off). Wet/dry via `Shift+R` / `Shift+Alt+R` is optional.
+  *Schema:* **none** — user preference is session-scoped. Persist last preset + wet/dry to `localStorage` (`yl-reverb-preset`, `yl-reverb-mix`), matching the pattern used by the volume keys `yl-volume` / `yl-muted`.
+  *Constraints:*
+    - Must not break existing volume / mute controls — `video.volume` and `video.muted` keep working when reverb is on.
+    - Creating the `AudioContext` must be lazy (first user interaction), to comply with browser autoplay policies.
+    - Toggling presets mid-playback must not cause a click / dropout — crossfade or bypass cleanly.
+    - Fullscreen and speed controls are unaffected.
+
 ---
 
 ## Cross-cutting
