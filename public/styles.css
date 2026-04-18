@@ -764,6 +764,10 @@ kbd {
 .seg-notes:focus, .video-notes:focus { border-color: var(--accent); }
 .icon-btn.on { filter: brightness(1.4); box-shadow: inset 0 0 0 1px currentColor; }
 
+.seg-loop-toggle            { background: #22223a; color: #5a5a72; }
+.seg-loop-toggle.on         { background: #7c6fff30; color: #7c6fff; }
+.seg-row.loop-disabled .seg-item { opacity: 0.55; }
+
 /* ── Notes panel ─────────────────────────────────────────────────────────── */
 .notes-panel {
   background: var(--bg-raised);

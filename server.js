@@ -83,6 +83,7 @@ function normalizeSegment(raw) {
         const notes = raw.notes.slice(0, MAX_SEGMENT_NOTES_LEN);
         if (notes.trim()) seg.notes = notes;
     }
+    seg.loopEnabled = raw.loopEnabled !== false;
     return seg;
 }
 

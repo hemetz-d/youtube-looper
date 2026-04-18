@@ -36,7 +36,8 @@ YouTube requires authentication. Export a `cookies.txt` from your browser using 
 2. Pick a video from the **Library** in the sidebar.
 3. Press `I` / `O` (or use **SET IN** / **SET OUT**) to mark a segment.
 4. Add more segments as needed, then press `L` or click **LOOP** to play them in sequence.
-5. Tune speed, volume, and notes as you work. Everything auto-saves.
+5. To practice one segment (or a subset), click the 🔁 button on rows you want to **exclude** — LOOP will only cycle through the remaining ones. `Shift`+`L` toggles the focused row.
+6. Tune speed, volume, and notes as you work. Everything auto-saves.
 
 ## Keyboard shortcuts
 
@@ -48,6 +49,7 @@ YouTube requires authentication. Export a `cookies.txt` from your browser using 
 | `←` / `→` | Seek ±5s |
 | `,` / `.` | Seek ±0.1s |
 | `L` | Toggle loop |
+| `Shift`+`L` | Include/exclude focused segment from the loop |
 | `F` | Toggle fullscreen |
 | `-` / `=` | Speed ±0.05× |
 | `0` | Reset speed to 1× |
@@ -62,7 +64,7 @@ Shortcuts are suppressed while typing in an input or textarea, so you can take n
 All state lives under `data/` (gitignored):
 
 - `library.json` — one entry per downloaded video (id, title, file, duration, tags, notes).
-- `segments.json` — keyed by video id; list of `{ start, end, color, label?, notes? }`.
+- `segments.json` — keyed by video id; list of `{ start, end, color, label?, notes?, loopEnabled }`.
 - `collections.json` — named tag-filter presets.
 - `cookies.txt` — your YouTube cookies (only if you uploaded them).
 

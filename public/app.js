@@ -105,10 +105,18 @@ function cookiesDrop(e) {
 
     // Trigger jump 0.1s early to cover seek latency → nearly gap-free
     if (looping && segments.length && !video.paused) {
-      const seg = segments[loopIdx];
-      if (t >= seg.end - 0.1) {
-        loopIdx = (loopIdx + 1) % segments.length;
-        video.currentTime = segments[loopIdx].start;
+      const enabledIdx = segments
+        .map((s, i) => (s.loopEnabled !== false ? i : -1))
+        .filter(i => i !== -1);
+      if (enabledIdx.length) {
+        let pos = enabledIdx.indexOf(loopIdx);
+        if (pos === -1) { pos = 0; loopIdx = enabledIdx[0]; }
+        const seg = segments[loopIdx];
+        if (t >= seg.end - 0.1) {
+          pos = (pos + 1) % enabledIdx.length;
+          loopIdx = enabledIdx[pos];
+          video.currentTime = segments[loopIdx].start;
+        }
       }
     }
   }
@@ -428,12 +436,14 @@ function renderVolumeUI() {
 // ── Loop ──────────────────────────────────────────────────────────────────
 function toggleLoop() {
   if (!segments.length) { setStatus('Add a segment first'); return; }
+  const firstEnabled = segments.findIndex(s => s.loopEnabled !== false);
+  if (firstEnabled === -1) { setStatus('Enable at least one segment for the loop'); return; }
   looping = !looping;
   loopBtn.classList.toggle('on', looping);
   loopBtn.textContent = looping ? '⟳ LOOPING' : '⟳ LOOP';
   if (looping) {
-    loopIdx = 0;
-    video.currentTime = segments[0].start;
+    loopIdx = firstEnabled;
+    video.currentTime = segments[firstEnabled].start;
     video.play();
   }
 }
@@ -442,6 +452,23 @@ function playSingle(i) {
   loopIdx = i;
   video.currentTime = segments[i].start;
   video.play();
+}
+
+function toggleSegmentLoop(i) {
+  if (i < 0 || i >= segments.length) return;
+  const enabled = segments[i].loopEnabled !== false;
+  segments[i].loopEnabled = !enabled;
+  const row = document.getElementById('sr' + i);
+  const btn = row && row.querySelector('.seg-loop-toggle');
+  if (row) row.classList.toggle('loop-disabled', enabled); // flipped → now disabled if was enabled
+  if (btn) {
+    btn.classList.toggle('on', !enabled);
+    btn.setAttribute('aria-pressed', String(!enabled));
+    btn.setAttribute('aria-label',
+      !enabled ? `Exclude segment ${i + 1} from loop` : `Include segment ${i + 1} in loop`);
+    btn.title = !enabled ? 'Included in loop — click to toggle' : 'Excluded from loop — click to toggle';
+  }
+  scheduleSegmentSave();
 }
 
 function removeSegment(i) {
@@ -526,7 +553,7 @@ function redrawList() {
     return;
   }
   list.innerHTML = segments.map((s, i) => `
-    <div class="seg-row" id="sr${i}">
+    <div class="seg-row${s.loopEnabled === false ? ' loop-disabled' : ''}" id="sr${i}">
       <div class="seg-item" id="si${i}">
         <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
         <div class="seg-info">
@@ -539,6 +566,7 @@ function redrawList() {
           </div>
         </div>
         <div class="seg-btns">
+          <button class="icon-btn seg-loop-toggle${s.loopEnabled === false ? '' : ' on'}" data-idx="${i}" title="${s.loopEnabled === false ? 'Excluded from loop' : 'Included in loop'} — click to toggle" aria-label="${s.loopEnabled === false ? 'Include segment ' + (i+1) + ' in loop' : 'Exclude segment ' + (i+1) + ' from loop'}" aria-pressed="${s.loopEnabled !== false}">🔁</button>
           <button class="icon-btn seg-notes-toggle${s.notes ? ' on' : ''}" data-idx="${i}" style="background:#22223a;color:#8a8aa5" title="Notes">📝</button>
           <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
           <button class="icon-btn" style="background:#ff446620;color:#ff4466" onclick="removeSegment(${i})" title="Remove">✕</button>
@@ -634,6 +662,11 @@ function redrawList() {
     });
   });
 
+  list.querySelectorAll('.seg-loop-toggle').forEach(btn => {
+    const idx = +btn.dataset.idx;
+    btn.addEventListener('click', () => toggleSegmentLoop(idx));
+  });
+
   applyCollectionFilter();
 }
 
@@ -667,6 +700,16 @@ document.addEventListener('keydown', e => {
     case ',': video.currentTime = Math.max(0, video.currentTime - 0.1); break;
     case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
     case 'l': toggleLoop(); break;
+    case 'L': {
+      if (!segments.length) { setStatus('Add a segment first'); break; }
+      const row = document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('.seg-row')
+        : null;
+      const idx = row ? +row.id.slice(2) : (looping ? loopIdx : -1);
+      if (idx < 0 || idx >= segments.length) { setStatus('Focus a segment first'); break; }
+      toggleSegmentLoop(idx);
+      break;
+    }
     case 'f': toggleFullscreen(); break;
     case '-': setSpeed(currentSpeed - SPEED_STEP); break;
     case '=': setSpeed(currentSpeed + SPEED_STEP); break;
