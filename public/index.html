@@ -151,9 +151,24 @@
 
       <div class="notes-panel" id="notesPanel" style="display:none">
         <div class="notes-panel-header">Video Notes</div>
-        <div class="tag-row" id="videoTagRow" data-scope="video"></div>
+        <div class="notes-field">
+          <label for="videoArtist">Artist</label>
+          <input type="text" id="videoArtist" class="video-artist"
+                 maxlength="120" placeholder="Artist / band"
+                 aria-label="Artist" autocomplete="off" />
+        </div>
+        <div class="notes-field">
+          <label id="videoTuningLabel">Tunings</label>
+          <div class="tag-row" id="videoTuningRow" data-scope="tuning"
+               aria-labelledby="videoTuningLabel"></div>
+        </div>
+        <div class="notes-field">
+          <label id="videoTagLabel">Tags</label>
+          <div class="tag-row" id="videoTagRow" data-scope="video"
+               aria-labelledby="videoTagLabel"></div>
+        </div>
         <textarea class="video-notes" id="videoNotes"
-                  placeholder="Tuning, key, overall observations…"
+                  placeholder="Key, overall observations…"
                   maxlength="8000" aria-label="Video notes"
                   style="margin-top:8px"></textarea>
       </div>

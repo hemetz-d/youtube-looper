@@ -23,6 +23,7 @@ let saveTimer       = null;
 let libraryOpen     = false;
 let libraryData     = [];
 let allTags         = [];       // autocomplete source (server union)
+let allTunings      = [];       // autocomplete source for tunings
 let collections     = [];       // saved collections
 let activeFilter    = [];       // current tag filter (string[])
 let activeCollId    = null;     // saved collection id that matches activeFilter exactly, if any
@@ -31,6 +32,7 @@ let activeCollId    = null;     // saved collection id that matches activeFilter
 loadLibrary();
 loadCollections();
 loadAllTags();
+loadAllTunings();
 checkCookies();
 initVolume();
 
@@ -149,15 +151,31 @@ function renderLibrary() {
     document.getElementById('libraryChevron').classList.add('open');
   }
 
-  list.innerHTML = libraryData.map((v, i) => `
+  list.innerHTML = libraryData.map((v, i) => {
+    const hasSecondary = !!(v.artist || (v.tunings && v.tunings.length));
+    const tunings = (v.tunings || []).map(t =>
+      `<span class="lib-tuning">${escapeHtml(t)}</span>`
+    ).join('');
+    return `
     <div class="lib-item ${v.id === currentVideoId ? 'active' : ''}" onclick="openFromLibrary(${i})">
       <span class="lib-icon">${v.id === currentVideoId ? '▶' : '○'}</span>
-      <span class="lib-title">${v.title}</span>
-      ${v.duration ? `<span class="lib-dur">${fmt(v.duration)}</span>` : ''}
-      <a class="lib-action" href="${v.file}" download title="Download file" onclick="event.stopPropagation()">↓</a>
+      <div class="lib-body">
+        <div class="lib-row-top">
+          <span class="lib-title">${escapeHtml(v.title)}</span>
+          ${v.duration ? `<span class="lib-dur">${fmt(v.duration)}</span>` : ''}
+        </div>
+        ${hasSecondary ? `
+          <div class="lib-row-bot">
+            ${v.artist ? `<span class="lib-artist">${escapeHtml(v.artist)}</span>` : ''}
+            ${tunings}
+          </div>
+        ` : ''}
+      </div>
+      <a class="lib-action" href="${escapeHtml(v.file)}" download title="Download file" onclick="event.stopPropagation()">↓</a>
       <button class="lib-action del" title="Delete video" onclick="event.stopPropagation(); deleteVideo(${i})">✕</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function toggleLibrary() {
@@ -176,7 +194,9 @@ async function openFromLibrary(i) {
   renderLibrary();
 
   document.getElementById('videoNotes').value = entry.notes ?? '';
+  document.getElementById('videoArtist').value = entry.artist ?? '';
   renderTagRow(document.getElementById('videoTagRow'));
+  renderTuningRow(document.getElementById('videoTuningRow'));
 
   const r = await fetch('/segments/' + id);
   segments = await r.json();
@@ -208,7 +228,9 @@ async function deleteVideo(i) {
     document.getElementById('segPanel').style.display     = 'none';
     document.getElementById('notesPanel').style.display   = 'none';
     document.getElementById('videoNotes').value = '';
+    document.getElementById('videoArtist').value = '';
     document.getElementById('videoTagRow').innerHTML = '';
+    document.getElementById('videoTuningRow').innerHTML = '';
     redrawList();
     setStatus('🗑 Deleted');
   }
@@ -306,6 +328,22 @@ videoNotesEl.addEventListener('change', async () => {
   const updated = await r.json();
   const entry = libraryData.find(v => v.id === currentVideoId);
   if (entry) entry.notes = updated.notes;
+});
+
+// ── Video artist ──────────────────────────────────────────────────────────
+const videoArtistEl = document.getElementById('videoArtist');
+videoArtistEl.addEventListener('change', async () => {
+  if (!currentVideoId) return;
+  const r = await fetch('/library/' + currentVideoId, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ artist: videoArtistEl.value })
+  });
+  if (!r.ok) { setStatus('❌ Failed to save artist'); return; }
+  const updated = await r.json();
+  const entry = libraryData.find(v => v.id === currentVideoId);
+  if (entry) { entry.artist = updated.artist; }
+  renderLibrary();
 });
 
 // ── Timeline seek ─────────────────────────────────────────────────────────
@@ -819,6 +857,100 @@ function renderAllTagRows() {
   // Only the video-notes tag row uses renderTagRow.
   // The filter row (#filterTagRow) renders via renderFilterRow.
   document.querySelectorAll('#videoTagRow.tag-row').forEach(renderTagRow);
+}
+
+// ── Tunings ───────────────────────────────────────────────────────────────
+const MAX_TUNING_LEN = 40, MAX_TUNINGS_PER_ENTRY = 6;
+
+async function loadAllTunings() {
+  try { allTunings = await (await fetch('/tunings')).json(); } catch { allTunings = []; }
+}
+
+function getVideoTunings() {
+  return libraryData.find(v => v.id === currentVideoId)?.tunings ?? [];
+}
+
+async function setVideoTunings(tunings) {
+  if (!currentVideoId) return;
+  const r = await fetch('/library/' + currentVideoId, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tunings })
+  });
+  if (!r.ok) { setStatus('❌ Failed to save tunings'); return; }
+  const updated = await r.json();
+  const entry = libraryData.find(v => v.id === currentVideoId);
+  if (entry) entry.tunings = updated.tunings;
+  await loadAllTunings();
+  renderLibrary();
+}
+
+function renderTuningRow(row) {
+  const items = getVideoTunings();
+  row.innerHTML = items.map((t, i) => `
+    <span class="tag-chip tuning">
+      ${escapeHtml(t)}<span class="tag-x" data-i="${i}" title="Remove">×</span>
+    </span>
+  `).join('') + `<input class="tag-input" placeholder="+ tuning" maxlength="${MAX_TUNING_LEN}" aria-label="Add tuning"><div class="tag-suggest"></div>`;
+
+  const inp = row.querySelector('.tag-input');
+  const sug = row.querySelector('.tag-suggest');
+  let hi = -1;
+
+  const commit = async (raw) => {
+    const trimmed = String(raw || '').trim().slice(0, MAX_TUNING_LEN);
+    if (!trimmed) return;
+    const current = getVideoTunings();
+    if (current.length >= MAX_TUNINGS_PER_ENTRY) { setStatus(`Tuning limit reached (${MAX_TUNINGS_PER_ENTRY})`); return; }
+    if (current.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tuning already added'); return; }
+    const canonical = allTunings.find(t => t.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+    await setVideoTunings([...current, canonical]);
+    renderTuningRow(row);
+    row.querySelector('.tag-input').focus();
+  };
+
+  row.querySelectorAll('.tag-x').forEach(x => {
+    x.addEventListener('click', async () => {
+      const i = +x.dataset.i;
+      const next = getVideoTunings().filter((_, n) => n !== i);
+      await setVideoTunings(next);
+      renderTuningRow(row);
+    });
+  });
+
+  inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    const current = getVideoTunings().map(t => t.toLowerCase());
+    const matches = allTunings.filter(t =>
+      t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
+    ).slice(0, 8);
+    if (!q || !matches.length) { sug.classList.remove('open'); return; }
+    hi = -1;
+    sug.innerHTML = matches.map((t, i) =>
+      `<div class="tag-suggest-item" data-tag="${escapeHtml(t)}" data-i="${i}">${escapeHtml(t)}</div>`
+    ).join('');
+    sug.classList.add('open');
+    sug.querySelectorAll('.tag-suggest-item').forEach(item => {
+      item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); sug.classList.remove('open'); inp.value = ''; });
+    });
+  });
+
+  inp.addEventListener('keydown', e => {
+    const items = [...sug.querySelectorAll('.tag-suggest-item')];
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
+      commit(pick); sug.classList.remove('open'); inp.value = '';
+    } else if (e.key === 'Escape') {
+      sug.classList.remove('open'); inp.blur();
+    } else if (e.key === 'ArrowDown' && items.length) {
+      e.preventDefault(); hi = (hi + 1) % items.length;
+      items.forEach((it, i) => it.classList.toggle('active', i === hi));
+    } else if (e.key === 'ArrowUp' && items.length) {
+      e.preventDefault(); hi = (hi - 1 + items.length) % items.length;
+      items.forEach((it, i) => it.classList.toggle('active', i === hi));
+    }
+  });
+  inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
 }
 
 function escapeHtml(s) {

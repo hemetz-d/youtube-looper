@@ -46,23 +46,44 @@ const MAX_VIDEO_NOTES_LEN   = 8000;
 const MAX_TAG_LEN           = 40;
 const MAX_TAGS_PER_RESOURCE = 20;
 const MAX_COLLECTION_NAME_LEN = 80;
+const MAX_ARTIST_LEN        = 120;
+const MAX_TUNING_LEN        = 40;
+const MAX_TUNINGS_PER_ENTRY = 6;
+
+// Curated set of recognizable tuning names for the one-time tag→tunings migration.
+// Comparison is against tuningKey() (lowercased, whitespace/hyphen collapsed).
+const KNOWN_TUNINGS = new Set([
+    'standard', 'e standard', 'eb standard', 'd standard', 'db standard',
+    'c standard', 'c# standard', 'b standard',
+    'drop d', 'drop db', 'drop c#', 'drop c', 'drop b', 'drop a', 'drop eb',
+    'open d', 'open g', 'open c', 'open e', 'open a',
+    'dadgad', 'half step down', 'whole step down',
+]);
+
+function tuningKey(s) {
+    return String(s).toLowerCase().replace(/[-_\s]+/g, ' ').trim();
+}
 
 // Trim, dedupe (case-insensitive, first occurrence wins), drop empties, cap count.
-function normalizeTags(raw) {
+function normalizeStringList(raw, maxCount, maxLen) {
     if (!Array.isArray(raw)) return [];
     const out = [];
     const seen = new Set();
     for (const t of raw) {
         if (typeof t !== 'string') continue;
-        const trimmed = t.trim().slice(0, MAX_TAG_LEN);
+        const trimmed = t.trim().slice(0, maxLen);
         if (!trimmed) continue;
         const key = trimmed.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
         out.push(trimmed);
-        if (out.length >= MAX_TAGS_PER_RESOURCE) break;
+        if (out.length >= maxCount) break;
     }
     return out;
+}
+
+function normalizeTags(raw) {
+    return normalizeStringList(raw, MAX_TAGS_PER_RESOURCE, MAX_TAG_LEN);
 }
 
 function normalizeSegment(raw) {
@@ -100,8 +121,33 @@ function normalizeLibraryEntry(raw) {
         const notes = raw.notes.slice(0, MAX_VIDEO_NOTES_LEN);
         if (notes.trim()) entry.notes = notes;
     }
-    const tags = normalizeTags(raw.tags);
+    if (typeof raw.artist === 'string') {
+        const artist = raw.artist.trim().slice(0, MAX_ARTIST_LEN);
+        if (artist) entry.artist = artist;
+    }
+    let tags = normalizeTags(raw.tags);
+    let tunings = normalizeStringList(raw.tunings, MAX_TUNINGS_PER_ENTRY, MAX_TUNING_LEN);
+
+    // One-time migration: if `tunings` is absent, move any tag matching a known
+    // tuning into `tunings` and drop it from `tags`. Idempotent once migrated
+    // (tuning-looking tags no longer appear in `tags`).
+    if (!Array.isArray(raw.tunings)) {
+        const migrated = [];
+        const remaining = [];
+        for (const t of tags) {
+            if (KNOWN_TUNINGS.has(tuningKey(t))) migrated.push(t);
+            else remaining.push(t);
+        }
+        if (migrated.length) {
+            tags = remaining;
+            tunings = normalizeStringList(
+                [...tunings, ...migrated], MAX_TUNINGS_PER_ENTRY, MAX_TUNING_LEN
+            );
+        }
+    }
+
     if (tags.length) entry.tags = tags;
+    if (tunings.length) entry.tunings = tunings;
     return entry;
 }
 
@@ -207,7 +253,10 @@ app.post('/download', async (req, res) => {
 
         const library = readJSON(LIBRARY_FILE, []);
         if (!library.find(v => v.id === info.id)) {
-            library.push({ id: info.id, title: info.title, file: `/videos/${downloadedFile}`, duration: info.duration ?? null });
+            const artistGuess = (info.artist || info.creator || info.uploader || info.channel || '').trim();
+            const entry = { id: info.id, title: info.title, file: `/videos/${downloadedFile}`, duration: info.duration ?? null };
+            if (artistGuess) entry.artist = artistGuess.slice(0, MAX_ARTIST_LEN);
+            library.push(entry);
             writeJSON(LIBRARY_FILE, library);
         }
 
@@ -241,10 +290,12 @@ app.post('/library/:id', (req, res) => {
     const library = readJSON(LIBRARY_FILE, []);
     const idx = library.findIndex(v => v && v.id === id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'Not found' });
-    // Only `notes` and `tags` are mutable here; id/file/title/duration stay put.
+    // Only `notes`, `tags`, `artist`, `tunings` are mutable here; id/file/title/duration stay put.
     const merged = { ...library[idx] };
-    if ('notes' in req.body) merged.notes = req.body.notes;
-    if ('tags'  in req.body) merged.tags  = req.body.tags;
+    if ('notes'   in req.body) merged.notes   = req.body.notes;
+    if ('tags'    in req.body) merged.tags    = req.body.tags;
+    if ('artist'  in req.body) merged.artist  = req.body.artist;
+    if ('tunings' in req.body) merged.tunings = req.body.tunings;
     const normalized = normalizeLibraryEntry(merged);
     if (!normalized) return res.status(400).json({ success: false, error: 'Invalid entry' });
     library[idx] = normalized;
@@ -290,9 +341,31 @@ app.post('/segments/:id', (req, res) => {
 app.get('/tags', (req, res) => {
     const library = readJSON(LIBRARY_FILE, []);
     const map = new Map(); // lowercase → first-seen casing
-    for (const v of library) {
+    for (const raw of library) {
+        const v = normalizeLibraryEntry(raw);
         if (!v || !Array.isArray(v.tags)) continue;
-        for (const t of normalizeTags(v.tags)) {
+        for (const t of v.tags) {
+            const k = t.toLowerCase();
+            if (!map.has(k)) map.set(k, t);
+        }
+    }
+    res.json([...map.values()].sort((a, b) => a.localeCompare(b)));
+});
+
+// ── Tunings (curated presets ∪ union across library videos) ──────────────────
+app.get('/tunings', (req, res) => {
+    const library = readJSON(LIBRARY_FILE, []);
+    const map = new Map();
+    const presets = [
+        'E Standard', 'Eb Standard', 'D Standard', 'Db Standard', 'C Standard', 'B Standard',
+        'Drop D', 'Drop Db', 'Drop C', 'Drop B', 'Drop A',
+        'Open D', 'Open G', 'Open C', 'Open E', 'Open A',
+        'DADGAD', 'Half Step Down', 'Whole Step Down',
+    ];
+    for (const t of presets) map.set(t.toLowerCase(), t);
+    for (const v of library) {
+        if (!v || !Array.isArray(v.tunings)) continue;
+        for (const t of normalizeStringList(v.tunings, MAX_TUNINGS_PER_ENTRY, MAX_TUNING_LEN)) {
             const k = t.toLowerCase();
             if (!map.has(k)) map.set(k, t);
         }
