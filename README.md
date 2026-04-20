@@ -9,7 +9,7 @@ A local-first, single-page app for downloading YouTube videos and drilling speci
 ## What it does
 
 - **Download** — paste a YouTube URL, grab the video locally via `yt-dlp`.
-- **Library** — every downloaded video lives in a searchable sidebar, tagged however you like.
+- **Library** — every downloaded video lives in a searchable sidebar, tagged however you like. Each entry tracks artist (auto-filled from the YouTube uploader, editable) and guitar tunings as a structured list.
 - **Segments** — mark in/out points on any video, label them, jump between them, loop one or the whole sequence.
 - **Playback control** — per-session speed (0.25×–2×), volume with mute, keyboard-first navigation.
 - **Notes** — per-video and per-segment text notes that persist alongside the library.
@@ -63,7 +63,7 @@ Shortcuts are suppressed while typing in an input or textarea, so you can take n
 
 All state lives under `data/` (gitignored):
 
-- `library.json` — one entry per downloaded video (id, title, file, duration, tags, notes).
+- `library.json` — one entry per downloaded video (id, title, file, duration, tags, notes, artist, tunings).
 - `segments.json` — keyed by video id; list of `{ start, end, color, label?, notes?, loopEnabled }`.
 - `collections.json` — named tag-filter presets.
 - `cookies.txt` — your YouTube cookies (only if you uploaded them).

@@ -53,6 +53,11 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
   Text search across title + notes + tags. Filter chips: has-segments, status, tag, last-practiced within N days.
   *UI:* single search box in the library panel. Filters persist to `localStorage`, not `library.json`.
 
+- [x] **T2.5 — Artist and tunings metadata**
+  Structured per-video `artist` (auto-filled from `uploader`/`artist`/`channel` at download time, user-editable) and `tunings: string[]` (up to 6, autocompleted from a curated preset list + existing library usage).
+  *Schema:* library entries gain `artist?: string` and `tunings?: string[]`. One-time migration moves tuning-looking values out of `tags` into `tunings` on first load (covers `Drop D`, `Drop-C`, `E Standard`, `Db Standard`, etc.).
+  *UI:* library row becomes two-line — title on top, dim artist text + tuning chips below. Artist input and tuning chip editor live in the Video Notes panel. New `GET /tunings` endpoint for autocomplete.
+
 ---
 
 ## Tier 3 — Forks in the road (decide before starting)
