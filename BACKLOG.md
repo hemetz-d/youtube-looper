@@ -131,7 +131,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
   *Dependencies:* hard dependency on T2.3 (without session data there's nothing to aggregate). Render the empty-state placeholder until T2.3 ships, so this view can land independently and become useful as soon as session logging is on.
   *Future:* per-segment depth ("minutes per segment, ranked"), goal tracking ("hit 30 min/day"), share-as-image — all separate items, do not bundle.
 
-- [ ] **T2.11 — Browser navigation and mini player**
+- [x] **T2.11 — Browser navigation and mini player**
   Wire the browser's back/forward buttons to view transitions, and keep playback alive when leaving the practice view. Today, view state is in `localStorage` but not in `history` — the browser's back/forward buttons do nothing useful, and direct URLs don't deep-link to a song. Pressing `Esc` from a playing Orbit also kills the audio; for "browse the library while the track keeps spinning", playback should continue in a minimized chip.
   *Routing:*
   - `history.pushState({ view: 'atlas' }, '', '/')` when entering Atlas.

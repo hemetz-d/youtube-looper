@@ -98,6 +98,23 @@
     </aside>
   </div>
 
+  <!-- ════ MINI PLAYER ═════════════════════════════════════════════════
+       Audio-only chip that appears in Atlas while a song is playing.
+       Sibling of the view roots so it survives view toggles. -->
+  <div class="mini-player" id="miniPlayer" hidden role="region" aria-label="Now playing">
+    <span class="mp-color-square" id="miniPlayerSquare" aria-hidden="true"></span>
+    <div class="mp-text">
+      <span class="mp-title" id="miniPlayerTitle">—</span>
+      <span class="mp-meta"  id="miniPlayerMeta"></span>
+    </div>
+    <button class="mp-btn mp-play"  id="miniPlayerPlayBtn"
+            type="button" aria-label="Pause">⏸</button>
+    <button class="mp-btn mp-open"  id="miniPlayerOpenBtn"
+            type="button" aria-label="Open in Orbit">Open</button>
+    <button class="mp-btn mp-close" id="miniPlayerCloseBtn"
+            type="button" aria-label="Pause and dismiss">×</button>
+  </div>
+
   <!-- ════ ORBIT ════════════════════════════════════════════════════════ -->
   <div id="orbitRoot" hidden>
     <header class="orbit-header">

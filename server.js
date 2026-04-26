@@ -428,6 +428,13 @@ app.delete('/collections/:id', (req, res) => {
     res.json({ success: true });
 });
 
+// SPA fallback: serve index.html for non-asset paths (e.g. /song/<id>) so direct
+// loads and refreshes work. Asset and API routes above match first; this only
+// catches anything that fell through. Express 5 wildcard syntax.
+app.get('/{*splat}', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ── Server ────────────────────────────────────────────────────────────────────
 const server = app.listen(3000, () => {
     fs.writeFileSync('server.pid', String(process.pid));
