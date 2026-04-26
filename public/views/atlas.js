@@ -7,9 +7,35 @@
   let highlightedIdx = 0;
   let searchQuery   = '';
   let searchTimer   = null;
+  let urlSeeded     = false; // one-shot: read ?q / ?tuning on first render
+
+  // Read ?q / ?tuning from the current URL so direct loads / shared links
+  // restore the same library view. URL beats localStorage when both exist.
+  function seedFromUrl() {
+    if (urlSeeded) return;
+    urlSeeded = true;
+    const params = new URLSearchParams(location.search);
+    const q  = params.get('q');
+    const tn = params.get('tuning');
+    if (q  !== null) searchQuery = q;
+    if (tn !== null) tuningFilter = tn || null;
+  }
+
+  // Encode search/filter into the URL via replaceState — no new history
+  // entries (back/forward only crosses major view boundaries).
+  function syncUrl() {
+    if (currentView !== 'atlas') return;
+    const params = new URLSearchParams();
+    if (searchQuery)  params.set('q', searchQuery);
+    if (tuningFilter) params.set('tuning', tuningFilter);
+    const qs = params.toString();
+    const url = qs ? '/?' + qs : '/';
+    history.replaceState({ view: 'atlas', id: null }, '', url);
+  }
 
   // ── Top-level render ───────────────────────────────────────────────────
   function render() {
+    seedFromUrl();
     renderMeta();
     renderTuningRail();
     renderTileBoard();
@@ -61,6 +87,7 @@
         if (tuningFilter) localStorage.setItem('yl-tuning-filter', tuningFilter);
         else              localStorage.removeItem('yl-tuning-filter');
         highlightedIdx = 0;
+        syncUrl();
         renderTuningRail();
         renderTileBoard();
       });
@@ -270,6 +297,7 @@
       searchTimer = setTimeout(() => {
         searchQuery = inp.value;
         highlightedIdx = 0;
+        syncUrl();
         renderTileBoard();
       }, 400);
     });
@@ -354,5 +382,16 @@
     editingVideoId = null;
   }
 
-  window.AtlasView = { render, focusSearch, onKey, openEdit, closeEdit };
+  // Used by app.js urlForState() so switchToAtlas pushes a URL that includes
+  // the active search/tuning state (e.g., /?q=foo&tuning=Drop%20D), keeping
+  // the library view shareable and preserving filters across orbit round-trips.
+  function urlPath() {
+    const params = new URLSearchParams();
+    if (searchQuery)  params.set('q', searchQuery);
+    if (tuningFilter) params.set('tuning', tuningFilter);
+    const qs = params.toString();
+    return qs ? '/?' + qs : '/';
+  }
+
+  window.AtlasView = { render, focusSearch, onKey, openEdit, closeEdit, urlPath, seedFromUrl };
 })();

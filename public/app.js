@@ -704,14 +704,51 @@ function wireTagInput(row, { pool, current, commit, onRemove }) {
 }
 
 // ── View routing ──────────────────────────────────────────────────────────
+// URL is the source of truth: '/' for Atlas, '/song/<id>' for Orbit.
+// `localStorage[yl-view|yl-song]` remains as a transitional fallback for
+// users coming from the pre-T2.11 build (URL is always '/' on first load).
+const ROUTING = { suppressPush: false };
+
+function urlForState(view, id) {
+  if (view === 'orbit' && id) return '/song/' + encodeURIComponent(id);
+  // Atlas URL includes ?q / ?tuning so filters survive orbit round-trips
+  // and link-shares restore the same library view.
+  return (window.AtlasView && AtlasView.urlPath) ? AtlasView.urlPath() : '/';
+}
+
+function parseLocation() {
+  const m = location.pathname.match(/^\/song\/([^/]+)\/?$/);
+  return m ? { view: 'orbit', id: decodeURIComponent(m[1]) } : { view: 'atlas', id: null };
+}
+
+function pushRouteState(view, id) {
+  if (ROUTING.suppressPush) return;
+  const url = urlForState(view, id);
+  const state = { view, id: id || null };
+  // Skip pushing if URL is unchanged — keeps history.length tidy.
+  if (location.pathname === url) {
+    history.replaceState(state, '', url);
+    return;
+  }
+  history.pushState(state, '', url);
+}
+
 function switchToAtlas({ pause = true } = {}) {
   if (pause && video && !video.paused) video.pause();
   currentView = 'atlas';
   localStorage.setItem(VIEW_KEY, 'atlas');
   document.getElementById('orbitRoot').hidden = true;
   document.getElementById('atlasRoot').hidden = false;
+  pushRouteState('atlas', null);
   // Defer to rAF so the just-unhidden board has a measurable clientHeight.
   if (window.AtlasView) requestAnimationFrame(() => AtlasView.render());
+  refreshMiniPlayer();
+}
+
+// Esc / browser-back path — never pause; just leave Orbit so the chip can
+// take over playback responsibility while the user browses the library.
+function switchToAtlasKeepPlaying() {
+  switchToAtlas({ pause: false });
 }
 
 function switchToOrbit(videoId) {
@@ -722,7 +759,70 @@ function switchToOrbit(videoId) {
   localStorage.setItem(SONG_KEY, videoId);
   document.getElementById('atlasRoot').hidden = true;
   document.getElementById('orbitRoot').hidden = false;
+  pushRouteState('orbit', videoId);
+  // Re-engaging the song clears any prior chip dismissal so the next
+  // Atlas-return surfaces the chip again.
+  miniDismissed = false;
   if (window.OrbitView) OrbitView.open(entry);
+  refreshMiniPlayer();
+}
+
+// ── Mini player ───────────────────────────────────────────────────────────
+// Audio-only chip in Atlas. The <video> element stays in Orbit's DOM (just
+// hidden by `#orbitRoot.hidden`). The chip is a UI shell that controls
+// playback through the same play()/pause() calls. Once a song has been
+// loaded, the chip stays in Atlas (showing the play/pause state) until the
+// user explicitly dismisses it with the × button — pausing alone does NOT
+// hide it. Returning to Orbit resets the dismissal so the chip reappears
+// next time the user backs out.
+let miniDismissed = false;
+
+function refreshMiniPlayer() {
+  const chip = document.getElementById('miniPlayer');
+  if (!chip) return;
+  const showable = currentView === 'atlas'
+                && currentVideoId
+                && !miniDismissed
+                && video && (video.duration || 0) > 0;
+  chip.hidden = !showable;
+  if (!showable) return;
+  renderMiniPlayerContent();
+}
+
+function renderMiniPlayerContent() {
+  const entry = libraryData.find(v => v.id === currentVideoId);
+  if (!entry) return;
+  const titleEl = document.getElementById('miniPlayerTitle');
+  const metaEl  = document.getElementById('miniPlayerMeta');
+  const sqEl    = document.getElementById('miniPlayerSquare');
+  const playEl  = document.getElementById('miniPlayerPlayBtn');
+  if (titleEl) titleEl.textContent = entry.title || '(untitled)';
+  if (metaEl)  metaEl.textContent  = entry.artist || '';
+  if (sqEl)    sqEl.style.background = tuningColor(primaryTuning(entry));
+  if (playEl) {
+    const playing = video && !video.paused;
+    playEl.textContent = playing ? '⏸' : '▶';
+    playEl.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  }
+}
+
+function wireMiniPlayer() {
+  const playBtn  = document.getElementById('miniPlayerPlayBtn');
+  const openBtn  = document.getElementById('miniPlayerOpenBtn');
+  const closeBtn = document.getElementById('miniPlayerCloseBtn');
+  if (playBtn) playBtn.addEventListener('click', () => {
+    if (!video) return;
+    if (video.paused) video.play().catch(() => {});
+    else              video.pause();
+  });
+  if (openBtn) openBtn.addEventListener('click', () => {
+    if (currentVideoId) switchToOrbit(currentVideoId);
+  });
+  if (closeBtn) closeBtn.addEventListener('click', () => {
+    if (video && !video.paused) video.pause();
+    miniDismissed = true;
+    refreshMiniPlayer();
+  });
 }
 
 // Persist playhead while in Orbit so refresh restores position.
@@ -744,12 +844,15 @@ function onKeydown(e) {
     return;
   }
 
-  // Esc handling: in Orbit, return to Atlas; in Atlas, close the edit panel
-  // if open (otherwise let the keystroke fall through harmlessly).
+  // Esc handling: in Orbit, return to Atlas WITHOUT pausing (the mini player
+  // takes over while the user browses the library); in Atlas, close the edit
+  // panel if open (otherwise let the keystroke fall through harmlessly).
+  // The orbit back chevron (`‹`) keeps its own pause-on-click semantics —
+  // explicit "back" still means "I'm done with this song".
   if (e.key === 'Escape') {
     if (currentView === 'orbit') {
       e.preventDefault();
-      switchToAtlas();
+      switchToAtlasKeepPlaying();
       return;
     }
     if (currentView === 'atlas') {
@@ -852,6 +955,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (editingVideoId === currentVideoId && window.OrbitView && currentView === 'orbit') {
       OrbitView.refreshHeader();
     }
+    if (editingVideoId === currentVideoId) refreshMiniPlayer();
   });
 
   // Title — re-renders Atlas (tile title) and Orbit header if the edited song
@@ -877,6 +981,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (editingVideoId === currentVideoId && window.OrbitView && currentView === 'orbit') {
       OrbitView.refreshHeader();
     }
+    if (editingVideoId === currentVideoId) refreshMiniPlayer();
   });
 
   // BPM — drives count-in tempo for this song if set; otherwise count-in
@@ -913,6 +1018,30 @@ window.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('beforeunload', persistPlayhead);
   setInterval(() => { if (video && !video.paused) persistPlayhead(); }, 5000);
 
+  // Mini player: refresh on every play/pause and once metadata is ready
+  // (duration becomes known). Wire button handlers.
+  wireMiniPlayer();
+  video.addEventListener('play',           refreshMiniPlayer);
+  video.addEventListener('pause',          refreshMiniPlayer);
+  video.addEventListener('loadedmetadata', refreshMiniPlayer);
+
+  // History: back/forward between Atlas and Orbit. Suppress the push that
+  // switchToAtlas/switchToOrbit would otherwise make in response, since
+  // popstate already represents a navigation.
+  window.addEventListener('popstate', (e) => {
+    const s = e.state || parseLocation();
+    ROUTING.suppressPush = true;
+    try {
+      if (s.view === 'orbit' && s.id && libraryData.some(v => v.id === s.id)) {
+        switchToOrbit(s.id);
+      } else {
+        switchToAtlasKeepPlaying();
+      }
+    } finally {
+      ROUTING.suppressPush = false;
+    }
+  });
+
   // Resize → relayout active view.
   window.addEventListener('resize', () => {
     if (currentView === 'orbit' && window.OrbitView) OrbitView.relayout();
@@ -941,14 +1070,36 @@ window.addEventListener('DOMContentLoaded', async () => {
   countInOn    = localStorage.getItem(COUNTIN_KEY) === '1';
   refreshCountInBtn();
 
-  // Route to last view.
-  const lastView = localStorage.getItem(VIEW_KEY) || 'atlas';
+  // Route boot: URL is primary truth; localStorage is a legacy fallback for
+  // users coming from the pre-T2.11 build (they'll land on '/' but their
+  // last view was Orbit).
+  const fromUrl  = parseLocation();
   const lastSong = localStorage.getItem(SONG_KEY);
-  if (lastView === 'orbit' && lastSong && libraryData.some(v => v.id === lastSong)) {
-    switchToOrbit(lastSong);
-  } else {
-    switchToAtlas({ pause: false });
+  let bootView = 'atlas', bootId = null;
+  if (fromUrl.view === 'orbit' && fromUrl.id) {
+    if (libraryData.some(v => v.id === fromUrl.id)) {
+      bootView = 'orbit'; bootId = fromUrl.id;
+    } else {
+      setStatus('Song not found — opening library');
+      history.replaceState({ view: 'atlas', id: null }, '', '/');
+    }
+  } else if (location.pathname === '/'
+          && localStorage.getItem(VIEW_KEY) === 'orbit'
+          && lastSong && libraryData.some(v => v.id === lastSong)) {
+    bootView = 'orbit'; bootId = lastSong;
   }
+
+  // Atlas reads ?q / ?tuning from the URL so direct-loaded shareable links
+  // restore the same library view. Do this BEFORE the bootstrap replaceState
+  // below so urlForState('atlas') returns the full query path.
+  if (window.AtlasView && AtlasView.seedFromUrl) AtlasView.seedFromUrl();
+
+  ROUTING.suppressPush = true;
+  if (bootView === 'orbit') switchToOrbit(bootId);
+  else                      switchToAtlas({ pause: false });
+  ROUTING.suppressPush = false;
+  // Seed initial state so the first popstate has a usable e.state.
+  history.replaceState({ view: bootView, id: bootId }, '', urlForState(bootView, bootId));
 
   // Kick off the rAF loop.
   rafLoop();

@@ -1321,3 +1321,78 @@ button { cursor: pointer; border: none; background: none; }
   z-index: 200;
 }
 .save-dot.visible { opacity: 1; }
+
+/* ── Mini player ─────────────────────────────────────────────────────────────
+   Audio-only chip pinned in the bottom-right of Atlas. Floats over the
+   library board (z-index above tiles + the "Last practiced" footer strip)
+   so it reads as an overlay, not a docked footer pill. Lifted off the
+   bottom edge with a substantial drop shadow to enhance the floating feel. */
+.mini-player {
+  position: fixed;
+  right: 28px;
+  bottom: 64px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px 12px 18px;
+  background: rgba(20, 16, 28, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+  max-width: min(540px, calc(100vw - 56px));
+  color: var(--text);
+}
+.mp-color-square {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  background: var(--tn-default);
+  flex-shrink: 0;
+}
+.mp-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 280px;
+  gap: 2px;
+}
+.mp-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-meta {
+  font-size: 12px;
+  color: var(--text-mute);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-meta:empty { display: none; }
+.mp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.mp-btn:hover { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
+.mp-btn.mp-play  { width: 38px; padding: 0; font-size: 14px; }
+.mp-btn.mp-close { width: 38px; padding: 0; font-size: 18px; line-height: 1; }
+.mp-btn.mp-close:hover { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
+.mp-btn.mp-open  { letter-spacing: 0.04em; padding: 0 18px; }

@@ -2,7 +2,7 @@
 
 A local-first, single-page app for downloading YouTube videos and drilling specific segments. Built for practice — pick a passage, loop it, slow it down, take notes, move on to the next.
 
-The UI has two screens: **Atlas** (home/library — a tile board of every song, color-coded by guitar tuning, sized by segment count) and **Orbit** (practice view — a circular timeline where segments are arcs and the playhead sweeps the ring like a clock hand). Click a tile to enter Orbit; press `Esc` to return.
+The UI has two screens: **Atlas** (home/library — a tile board of every song, color-coded by guitar tuning, sized by segment count) and **Orbit** (practice view — a circular timeline where segments are arcs and the playhead sweeps the ring like a clock hand). Click a tile to enter Orbit; press `Esc` to return — playback keeps going in a corner mini-player chip so you can browse the library while a track is spinning.
 
 ![Video Looper UI](docs/screenshot.png)
 
@@ -40,7 +40,14 @@ YouTube requires authentication. Export a `cookies.txt` from your browser using 
 4. Add more segments, then press `L` (or click **Loop**) to cycle through them.
 5. To exclude a segment from the loop, click its arc / chip while looping is on, or press `Shift`+`L`.
 6. Tune speed (slider stops at 0.5 / 0.75 / 1× / 1.25× or `-` / `=` for fine control), open **Notes** for artist / tunings / tags / video notes. Everything auto-saves.
-7. Press `Esc` to return to Atlas.
+7. Press `Esc` to return to Atlas. Audio keeps playing — a **mini player** chip appears in the bottom-right with the song title, a play/pause toggle, **Open** (returns to Orbit), and **×** (pauses and dismisses). The orbit back chevron `‹` instead pauses immediately.
+
+## URLs and navigation
+
+- `/` — library (Atlas). Active search and tuning filter are encoded as `?q=…&tuning=…` so URLs are shareable.
+- `/song/<id>` — practice (Orbit) for a specific song. Direct-loadable and refresh-safe.
+- Browser **back / forward** crosses between library and song views (filter changes don't pollute history).
+- Refresh on `/song/<id>` reopens Orbit on that song; refresh on `/` returns to Atlas.
 
 ## Keyboard shortcuts
 
