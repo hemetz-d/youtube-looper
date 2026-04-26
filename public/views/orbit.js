@@ -15,6 +15,7 @@
 
   let entry = null;            // current library entry
   let restoreTimePending = NaN;
+  let playPauseWired = false;
 
   // ── Public ─────────────────────────────────────────────────────────────
   function open(libEntry) {
@@ -61,10 +62,27 @@
     // Hook playhead tick.
     window.onPlayheadTick = onTick;
 
+    // Wire play/pause icon swap once.
+    if (!playPauseWired && video) {
+      video.addEventListener('play',  () => setPlayPauseIcon(true));
+      video.addEventListener('pause', () => setPlayPauseIcon(false));
+      playPauseWired = true;
+    }
+    setPlayPauseIcon(video && !video.paused);
+
     // Speed slider stops + transport state.
     renderSpeedSlider();
     onSpeedChange(currentSpeed);
     onLoopChange();
+  }
+
+  function setPlayPauseIcon(playing) {
+    const btn = document.getElementById('orbitPlay');
+    if (!btn) return;
+    btn.innerHTML = playing
+      ? '<span class="pause-icon" aria-hidden="true">❚❚</span>'
+      : '<span class="play-icon" aria-hidden="true">▶</span>';
+    btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
   }
 
   function applyPendingTime() {
@@ -114,18 +132,33 @@
 
   // ── Geometry ───────────────────────────────────────────────────────────
   function computeGeometry() {
-    const orbitTop = 120;
+    const orbitTop          = 120;
     const orbitBottomMargin = 40;
+    const cardOffset        = 116;  // R - R2 + 70 = 46 + 70
+    const cardHeight        = 100;  // approximate Now-Playing card height
+
     const avail = Math.max(360, window.innerHeight - orbitTop - orbitBottomMargin);
     R  = Math.min(290, Math.max(160, (avail - 140) / 2));
     R2 = R - 46;
-    cx = Math.max(R + 60, 320);
-    cy = orbitTop + R + 30;
 
-    // SVG covers the left half so the right-column doesn't overlap.
-    svgW = Math.min(window.innerWidth - 600, cx + R + 80);
+    // Center cx between the left margin and the right column (right: 28, width: 540 → 568px).
+    // Floor at R+60 so the ring never clips the left edge.
+    const leftMargin      = 28;
+    const rightColumnLeft = window.innerWidth - 568;
+    const cxIdeal         = (leftMargin + rightColumnLeft) / 2;
+    cx = Math.max(R + 60, cxIdeal);
+
+    // Center cy so the (ring + Now-Playing card) block is balanced in the
+    // viewport. Floor at orbitTop+R+30 so the ring stays below the header,
+    // ceiling so the card stays above the bottom margin.
+    const idealCy = window.innerHeight / 2 - (cardOffset + cardHeight - R) / 2;
+    const minCy   = orbitTop + R + 30;
+    const maxCy   = window.innerHeight - orbitBottomMargin - cardOffset - cardHeight;
+    cy = Math.max(minCy, Math.min(idealCy, maxCy));
+
+    // SVG spans up to the right-column edge so labels at r=R+26 fit.
+    svgW = Math.max(cx + R + 40, rightColumnLeft - 12);
     svgH = window.innerHeight;
-    if (svgW < cx + R + 40) svgW = cx + R + 40;
   }
 
   // ── SVG drawing ────────────────────────────────────────────────────────
@@ -139,6 +172,28 @@
     svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
+    const tn = primaryTuning(entry);
+    const c = tn ? tuningColor(tn) : DEFAULT_TUNING_COLOR;
+
+    // Ambient radial wash in the tuning color so the empty side-space picks
+    // up the song's signature instead of feeling like void. Very low opacity.
+    const defs = createEl('defs');
+    const grad = createEl('radialGradient', {
+      id: 'orbitGlow',
+      gradientUnits: 'userSpaceOnUse',
+      cx, cy, fx: cx, fy: cy,
+      r: R * 1.7,
+    });
+    grad.appendChild(createEl('stop', { offset: '0%',  'stop-color': c, 'stop-opacity': 0.10 }));
+    grad.appendChild(createEl('stop', { offset: '55%', 'stop-color': c, 'stop-opacity': 0.035 }));
+    grad.appendChild(createEl('stop', { offset: '100%','stop-color': c, 'stop-opacity': 0 }));
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+    svg.appendChild(createEl('rect', {
+      x: 0, y: 0, width: svgW, height: svgH,
+      fill: 'url(#orbitGlow)',
+    }));
+
     // Outer ring
     svg.appendChild(circle(cx, cy, R, {
       fill: 'none', stroke: 'rgba(255,255,255,0.06)', 'stroke-width': 1,
@@ -148,6 +203,34 @@
     svg.appendChild(circle(cx, cy, R2 - 70, {
       fill: 'rgba(255,255,255,0.025)',
     }));
+
+    // Always-on tuning-colored "track" at the segment radius. Segment arcs
+    // (stroke-width 14) overlay it where they exist, so it shows as accent in
+    // the gaps and as the full ring when there are no segments yet.
+    svg.appendChild(circle(cx, cy, R2, {
+      fill: 'none', stroke: c, 'stroke-width': 1.5, opacity: 0.4,
+    }));
+
+    // Click-to-seek band — invisible thick stroke at r=R2. Clicks on segment
+    // arcs hit the arc (drawn after, on top); clicks in gaps hit this. Snaps
+    // to t=0 within ~4° of 12 o'clock for easy "back to start" navigation.
+    const seekBand = createEl('circle', {
+      cx, cy, r: R2,
+      fill: 'none', stroke: 'transparent', 'stroke-width': 50,
+    });
+    seekBand.style.pointerEvents = 'stroke';
+    seekBand.style.cursor = 'pointer';
+    seekBand.addEventListener('click', e => {
+      if (!video || !video.duration) return;
+      const rect = svg.getBoundingClientRect();
+      const dx = e.clientX - rect.left - cx;
+      const dy = e.clientY - rect.top - cy;
+      let deg = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+      const snap = (deg < 4 || deg > 356);
+      const t = snap ? 0 : (deg / 360) * video.duration;
+      video.currentTime = t;
+    });
+    svg.appendChild(seekBand);
 
     // Tick marks
     const dur = entry.duration || (video?.duration && isFinite(video.duration) ? video.duration : 0);
@@ -217,16 +300,58 @@
       });
     }
 
-    // Playhead arm + tip dot
-    const playhead = createEl('g', { id: 'orbitPlayhead' });
-    const tn = primaryTuning(entry);
-    const c = tn ? tuningColor(tn) : DEFAULT_TUNING_COLOR;
+    // Playhead arm + draggable knob (line, halo, dot, hit target). The hit
+    // target is invisible and ~16px wide for a comfortable grab zone; the
+    // visible halo + dot animate via CSS on hover / .dragging.
+    const playhead = createEl('g', { id: 'orbitPlayhead', class: 'playhead-knob' });
     playhead.appendChild(line(cx, cy, cx, cy - R, {
+      class: 'ph-arm',
       stroke: c, 'stroke-width': 2, 'stroke-linecap': 'round',
     }));
-    playhead.appendChild(circle(cx, cy - R, 6, { fill: c }));
+    playhead.appendChild(createEl('circle', {
+      class: 'ph-halo', cx, cy: cy - R, fill: c,
+    }));
+    playhead.appendChild(createEl('circle', {
+      class: 'ph-dot',  cx, cy: cy - R, fill: c,
+    }));
+    const hit = createEl('circle', {
+      class: 'ph-hit', cx, cy: cy - R, fill: 'transparent',
+    });
+    playhead.appendChild(hit);
     playhead.setAttribute('transform', `rotate(0 ${cx} ${cy})`);
     svg.appendChild(playhead);
+
+    // Drag-to-scrub on the knob. Pauses playback for the drag, resumes if it
+    // was playing. mousemove uses the same atan2-based math as the seek band.
+    let dragging = false;
+    let wasPlaying = false;
+    hit.addEventListener('mousedown', e => {
+      if (!video || !video.duration) return;
+      e.preventDefault();
+      dragging = true;
+      wasPlaying = !video.paused;
+      if (wasPlaying) video.pause();
+      playhead.classList.add('dragging');
+      const onMove = ev => {
+        if (!dragging) return;
+        const rect = svg.getBoundingClientRect();
+        const dx = ev.clientX - rect.left - cx;
+        const dy = ev.clientY - rect.top - cy;
+        let deg = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+        const snap = (deg < 4 || deg > 356);
+        video.currentTime = snap ? 0 : (deg / 360) * video.duration;
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        playhead.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+        if (wasPlaying) video.play().catch(() => {});
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
 
     // Center hub
     svg.appendChild(circle(cx, cy, 22, {
@@ -234,17 +359,45 @@
     }));
     svg.appendChild(circle(cx, cy, 4, { fill: c }));
 
-    // Coach-mark for empty Orbit
-    const coach = document.getElementById('orbitCoachmark');
-    if (!segments.length) {
-      coach.hidden = false;
-      coach.style.left = (cx - 110) + 'px';
-      coach.style.top  = (cy - 16) + 'px';
-      coach.style.width = '220px';
-      coach.innerHTML = `Press <span class="kbd">I</span> then <span class="kbd">O</span><br>to mark your first segment`;
-    } else {
-      coach.hidden = true;
+    // Empty-state decoration (progress arc + eyebrow/duration/hint texts).
+    if (!segments.length && dur > 0) {
+      // Progress arc — fills around the full ring as the song plays.
+      const progress = createEl('path', {
+        id: 'emptyProgressArc',
+        d: arcPath(cx, cy, R2, 0, 0.5),
+        fill: 'none', stroke: c, 'stroke-width': 14,
+        'stroke-linecap': 'butt', opacity: 0.55,
+      });
+      svg.appendChild(progress);
+
+      // "PLAY THROUGH" eyebrow above the play button.
+      svg.appendChild(text(cx, cy - 90, 'PLAY THROUGH', {
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-family': 'Inter, sans-serif',
+        'font-weight': 700, 'font-size': 9.5,
+        'letter-spacing': '2px',
+        fill: 'rgba(255,255,255,0.4)',
+      }));
+
+      // Duration below the play button.
+      svg.appendChild(text(cx, cy + 70, fmt(dur), {
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-family': 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        'font-weight': 700, 'font-size': 26,
+        fill: 'rgba(255,255,255,0.85)',
+      }));
+
+      // Subtle hint below the duration.
+      svg.appendChild(text(cx, cy + 100, 'press I + O to mark a segment', {
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-family': 'Inter, sans-serif',
+        'font-size': 11,
+        fill: 'rgba(255,255,255,0.4)',
+      }));
     }
+
+    // Toggle empty-state class on the root for CSS-driven transport dimming.
+    document.getElementById('orbitRoot').classList.toggle('empty', !segments.length);
   }
 
   function arcPath(cx, cy, r, startDeg, endDeg) {
@@ -303,27 +456,51 @@
     const ph = document.getElementById('orbitPlayhead');
     if (ph) ph.setAttribute('transform', `rotate(${angle} ${cx} ${cy})`);
 
-    // Now-Looping card content.
+    // Now-Looping / Now-Playing card content.
     const card = document.getElementById('nowLoopingCard');
+    const eyebrow = card?.querySelector('.nl-eyebrow');
+    const tn = primaryTuning(entry);
+    const tnColor = tn ? tuningColor(tn) : DEFAULT_TUNING_COLOR;
+
     if (segments.length) {
       card.hidden = false;
+      if (eyebrow) eyebrow.textContent = 'NOW LOOPING';
       const seg = segments[Math.min(loopIdx, segments.length - 1)];
       const sq = document.getElementById('nlColorSquare');
       if (sq) sq.style.background = seg.color;
       document.getElementById('nlTimeFine').textContent = fmtTimeFine(t);
       const label = seg.label && seg.label.trim() ? seg.label : `Segment ${loopIdx + 1}`;
       document.getElementById('nlLabel').textContent = label;
-      const dur = seg.end - seg.start;
-      document.getElementById('nlRange').textContent = `${fmt(seg.start)} → ${fmt(seg.end)} · ${dur.toFixed(1)}s`;
-      const within = Math.max(0, Math.min(dur, t - seg.start));
-      const pct = dur > 0 ? (within / dur) * 100 : 0;
+      const segDur = seg.end - seg.start;
+      document.getElementById('nlRange').textContent = `${fmt(seg.start)} → ${fmt(seg.end)} · ${segDur.toFixed(1)}s`;
+      const within = Math.max(0, Math.min(segDur, t - seg.start));
+      const pct = segDur > 0 ? (within / segDur) * 100 : 0;
       const fill = document.getElementById('nlProgress');
       if (fill) {
         fill.style.width = pct + '%';
         fill.style.background = seg.color;
       }
     } else {
-      card.hidden = true;
+      // Empty Orbit — surface "Now Playing" full-song progress.
+      card.hidden = false;
+      if (eyebrow) eyebrow.textContent = 'NOW PLAYING';
+      const sq = document.getElementById('nlColorSquare');
+      if (sq) sq.style.background = tnColor;
+      document.getElementById('nlTimeFine').textContent = fmtTimeFine(t);
+      document.getElementById('nlLabel').textContent = entry.title || '(untitled)';
+      document.getElementById('nlRange').textContent = `0:00 → ${fmt(D)} · ${Math.round(D)}s`;
+      const pct = D > 0 ? (t / D) * 100 : 0;
+      const fill = document.getElementById('nlProgress');
+      if (fill) {
+        fill.style.width = pct + '%';
+        fill.style.background = tnColor;
+      }
+      // Grow progress arc around the ring.
+      const arc = document.getElementById('emptyProgressArc');
+      if (arc && D > 0) {
+        const ang = Math.max(0.5, (t / D) * 360);
+        arc.setAttribute('d', arcPath(cx, cy, R2, 0, Math.min(359.9, ang)));
+      }
     }
 
     // Video chip (bottom-left of video).
@@ -332,14 +509,21 @@
 
   function updateVideoChip() {
     const chip = document.getElementById('orVideoChip');
-    if (!chip) return;
-    if (!segments.length || !entry) { chip.hidden = true; return; }
+    if (!chip || !entry) return;
     chip.hidden = false;
-    const seg = segments[Math.min(loopIdx, segments.length - 1)];
-    document.getElementById('orVideoChipSquare').style.background = seg.color;
-    const label = seg.label && seg.label.trim() ? seg.label : `Segment ${loopIdx + 1}`;
-    document.getElementById('orVideoChipText').textContent =
-      `${label} · ${currentSpeed.toFixed(2)}×`;
+    if (segments.length) {
+      const seg = segments[Math.min(loopIdx, segments.length - 1)];
+      document.getElementById('orVideoChipSquare').style.background = seg.color;
+      const label = seg.label && seg.label.trim() ? seg.label : `Segment ${loopIdx + 1}`;
+      document.getElementById('orVideoChipText').textContent =
+        `${label} · ${currentSpeed.toFixed(2)}×`;
+    } else {
+      const tn = primaryTuning(entry);
+      const tnColor = tn ? tuningColor(tn) : DEFAULT_TUNING_COLOR;
+      document.getElementById('orVideoChipSquare').style.background = tnColor;
+      document.getElementById('orVideoChipText').textContent =
+        `Play through · ${currentSpeed.toFixed(2)}×`;
+    }
   }
 
   // ── Speed slider ──────────────────────────────────────────────────────
@@ -453,7 +637,7 @@
     const wrap = document.getElementById('orPassages');
     if (!wrap) return;
     if (!segments.length) {
-      wrap.innerHTML = `<div class="or-passages-empty">No segments yet — press <span class="kbd">I</span> then <span class="kbd">O</span> to mark one.</div>`;
+      wrap.innerHTML = `<div class="or-passages-empty">Mark a segment with <span class="kbd">I</span> + <span class="kbd">O</span> to enable looping &amp; passages.</div>`;
       return;
     }
     const html = segments.map((s, i) => {

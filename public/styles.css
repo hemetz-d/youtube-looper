@@ -507,6 +507,30 @@ button { cursor: pointer; border: none; background: none; }
 .orbit-svg .arc { pointer-events: all; cursor: pointer; transition: opacity 0.15s; }
 .orbit-svg text { user-select: none; }
 
+/* Draggable playhead knob — three layered circles + an invisible hit target. */
+.orbit-svg .ph-arm { pointer-events: none; }
+.orbit-svg .ph-halo {
+  pointer-events: none;
+  r: 6;
+  opacity: 0;
+  transition: opacity 0.18s ease, r 0.18s ease;
+}
+.orbit-svg .ph-dot {
+  pointer-events: none;
+  r: 6;
+  transition: r 0.18s ease;
+}
+.orbit-svg .ph-hit {
+  pointer-events: all;
+  cursor: grab;
+  r: 16;
+}
+.orbit-svg .playhead-knob:hover .ph-halo { opacity: 0.35; r: 14; }
+.orbit-svg .playhead-knob:hover .ph-dot  { r: 7.5; }
+.orbit-svg .playhead-knob.dragging .ph-hit  { cursor: grabbing; }
+.orbit-svg .playhead-knob.dragging .ph-halo { opacity: 0.55; r: 22; }
+.orbit-svg .playhead-knob.dragging .ph-dot  { r: 9.5; }
+
 .orbit-coachmark {
   position: absolute;
   text-align: center;
@@ -818,6 +842,39 @@ button { cursor: pointer; border: none; background: none; }
 .or-transport button[aria-disabled="true"]:hover {
   background: var(--surface-3);
   border-color: var(--border);
+}
+
+/* When Orbit is empty (zero segments), the loop / prev / next buttons are
+   no-ops, so dim them visually. Click handlers keep working but report a
+   useful status message. */
+#orbitRoot.empty .or-transport .tr-loop,
+#orbitRoot.empty .or-transport button:not([aria-disabled]) {
+  opacity: 0.4;
+}
+#orbitRoot.empty .or-transport .tr-loop:hover,
+#orbitRoot.empty .or-transport button:not([aria-disabled]):hover {
+  opacity: 0.55;
+}
+
+/* Empty Orbit play button — subtle ambient breathing so the screen
+   doesn't feel static when the user is just deciding what to do. */
+#orbitRoot.empty .orbit-play {
+  animation: orbitPlayBreathe 3.6s ease-in-out infinite;
+}
+@keyframes orbitPlayBreathe {
+  0%, 100% { box-shadow:
+      0 0 0 6px rgba(10, 8, 16, 0.85),
+      0 0 24px rgba(0, 0, 0, 0.6),
+      0 0 40px var(--tn-glow, rgba(124, 111, 255, 0.4));
+  }
+  50% { box-shadow:
+      0 0 0 6px rgba(10, 8, 16, 0.85),
+      0 0 28px rgba(0, 0, 0, 0.6),
+      0 0 60px var(--tn-glow, rgba(124, 111, 255, 0.6));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #orbitRoot.empty .orbit-play { animation: none; }
 }
 
 /* Passages + reverb */
