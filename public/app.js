@@ -1,3 +1,4 @@
+// ── Constants ─────────────────────────────────────────────────────────────
 const COLORS  = ['#7c6fff','#22c55e','#f97316','#06b6d4','#ec4899','#facc15','#8b5cf6','#10b981'];
 const SPEED_PRESETS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25];
 const SPEED_STEP = 0.05;
@@ -6,104 +7,135 @@ const SPEED_MAX  = 2;
 const VOL_STEP   = 0.05;
 const VOL_KEY    = 'yl-volume';
 const MUTE_KEY   = 'yl-muted';
+const VIEW_KEY        = 'yl-view';
+const SONG_KEY        = 'yl-song';
+const TUNING_FILTER_KEY = 'yl-tuning-filter';
+const TIME_KEY_PREFIX = 'yl-time-';
 
-const video   = document.getElementById('player');
-const tl      = document.getElementById('timeline');
-const ph      = document.getElementById('playhead');
-const timeBig = document.getElementById('timeBig');
-const loopBtn = document.getElementById('loopBtn');
+const TUNING_COLORS = {
+  'drop d':       '#7c6fff',
+  'drop-d':       '#7c6fff',
+  'drop c':       '#ef4444',
+  'drop-c':       '#ef4444',
+  'e standard':   '#06b6d4',
+  'eb standard':  '#22c55e',
+  'db standard':  '#a855f7',
+  'drop eb':      '#f59e0b',
+  'drop-eb':      '#f59e0b',
+};
+const DEFAULT_TUNING_COLOR = '#94a3b8';
 
-let segments        = [];
-let pendingIn       = null;
-let looping         = false;
-let loopIdx         = 0;
-let currentVideoId  = null;
-let currentSpeed    = 1;
-let saveTimer       = null;
-let libraryOpen     = false;
-let libraryData     = [];
-let allTags         = [];       // autocomplete source (server union)
-let allTunings      = [];       // autocomplete source for tunings
-let collections     = [];       // saved collections
-let activeFilter    = [];       // current tag filter (string[])
-let activeCollId    = null;     // saved collection id that matches activeFilter exactly, if any
+// ── DOM refs (set after DOMContentLoaded) ─────────────────────────────────
+let video       = null;
+let saveDotEl   = null;
+let statusEl    = null;
+let statusTimer = null;
 
-// ── Init ──────────────────────────────────────────────────────────────────
-loadLibrary();
-loadCollections();
-loadAllTags();
-loadAllTunings();
-checkCookies();
-initVolume();
+// ── State globals ─────────────────────────────────────────────────────────
+let segments       = [];
+let pendingIn      = null;
+let looping        = false;
+let loopIdx        = 0;
+let currentVideoId = null;
+let currentSpeed   = 1;
+let saveTimer      = null;
+let libraryData    = [];
+let allTags        = [];
+let allTunings     = [];
+let collections    = [];
+let activeFilter   = []; // legacy — kept so renderTagRow doesn't error; not exposed in U1 UI
+let segCounts      = {}; // {videoId: number} — populated lazily by Atlas
 
-// ── Cookies ───────────────────────────────────────────────────────────────
-async function checkCookies() {
-  const { exists } = await fetch('/cookies').then(r => r.json());
-  setCookiesUI(exists);
+// View routing
+let currentView   = 'atlas';      // 'atlas' | 'orbit'
+let tuningFilter  = null;         // null = "All"
+
+// Hook called on every rAF tick by views that want playhead updates.
+window.onPlayheadTick = function () {};
+
+// ── Tuning helpers ────────────────────────────────────────────────────────
+function tuningColor(name) {
+  if (!name) return DEFAULT_TUNING_COLOR;
+  return TUNING_COLORS[name.trim().toLowerCase()] || DEFAULT_TUNING_COLOR;
 }
 
-function setCookiesUI(active) {
-  const bar    = document.getElementById('cookiesBar');
-  const text   = document.getElementById('cookiesText');
-  const remove = document.getElementById('cookiesRemove');
-  bar.classList.toggle('active', active);
-  bar.style.cursor = active ? 'default' : 'pointer';
-  text.textContent = active
-    ? 'cookies.txt active'
-    : 'No cookies.txt — click or drop file to enable downloads';
-  remove.style.display = active ? 'inline-block' : 'none';
+function primaryTuning(entry) {
+  if (entry?.tunings?.length) return entry.tunings[0];
+  for (const t of (entry?.tags || [])) {
+    if (TUNING_COLORS[t.trim().toLowerCase()]) return t;
+  }
+  return null;
 }
 
-async function uploadCookies(content) {
-  const r = await fetch('/cookies', {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: content
-  });
-  if ((await r.json()).success) setCookiesUI(true);
+function uniqueTunings(library) {
+  const seen = new Set();
+  const out = [];
+  for (const e of library) {
+    const t = primaryTuning(e);
+    if (!t) continue;
+    const k = t.trim().toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
 }
 
-async function removeCookies() {
-  await fetch('/cookies', { method: 'DELETE' });
-  setCookiesUI(false);
+// ── Time formatting ───────────────────────────────────────────────────────
+function fmt(t, precise = false) {
+  if (!isFinite(t) || t < 0) t = 0;
+  const m  = Math.floor(t / 60);
+  const s  = Math.floor(t % 60);
+  const ds = precise ? '.' + Math.floor((t % 1) * 10) : '';
+  return `${m}:${String(s).padStart(2, '0')}${ds}`;
 }
 
-function cookiesFileChosen(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => uploadCookies(e.target.result);
-  reader.readAsText(file);
-  input.value = ''; // reset so same file can be re-selected
+function fmtTimeFine(t) {
+  if (!isFinite(t) || t < 0) t = 0;
+  const m  = Math.floor(t / 60);
+  const s  = t - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
-function cookiesDragOver(e) {
-  e.preventDefault();
-  document.getElementById('cookiesBar').classList.add('dragover');
+function formatEditTime(t) {
+  if (!isFinite(t) || t < 0) t = 0;
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
-function cookiesDragLeave(e) {
-  document.getElementById('cookiesBar').classList.remove('dragover');
+function parseTime(str) {
+  if (typeof str !== 'string') return NaN;
+  const s = str.trim();
+  if (!s) return NaN;
+  if (s.includes(':')) {
+    const [mPart, sPart] = s.split(':');
+    const m = Number(mPart), sec = Number(sPart);
+    if (!Number.isFinite(m) || !Number.isFinite(sec) || m < 0 || sec < 0 || sec >= 60) return NaN;
+    return m * 60 + sec;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
 }
 
-function cookiesDrop(e) {
-  e.preventDefault();
-  document.getElementById('cookiesBar').classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => uploadCookies(ev.target.result);
-  reader.readAsText(file);
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-// ── rAF loop (playhead + gap-free segment looping) ────────────────────────
-(function rafLoop() {
-  if (video.duration) {
+function setStatus(msg) {
+  if (!statusEl) return;
+  statusEl.textContent = msg;
+  statusEl.classList.add('visible');
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => statusEl.classList.remove('visible'), 3500);
+}
+
+// ── rAF loop (preserved verbatim — gap-free segment looping) ──────────────
+function rafLoop() {
+  if (video && video.duration) {
     const t   = video.currentTime;
-    const pct = t / video.duration * 100;
-    ph.style.left = pct + '%';
-    timeBig.textContent = `${fmt(t, true)} / ${fmt(video.duration)}`;
-    document.getElementById('tLeft').textContent = fmt(t);
+    const dur = video.duration;
 
     // Trigger jump 0.1s early to cover seek latency → nearly gap-free
     if (looping && segments.length && !video.paused) {
@@ -121,130 +153,158 @@ function cookiesDrop(e) {
         }
       }
     }
+
+    try { window.onPlayheadTick(t, dur); } catch {}
   }
   requestAnimationFrame(rafLoop);
-})();
+}
 
-// ── Library ───────────────────────────────────────────────────────────────
+// ── Persistence: library / segments / tags / tunings / collections ────────
 async function loadLibrary() {
-  const r = await fetch('/library');
-  libraryData = await r.json();
-  renderLibrary();
-  renderCollections();
-  applyCollectionFilter();
-}
-
-function renderLibrary() {
-  const panel = document.getElementById('libraryPanel');
-  const list  = document.getElementById('libraryList');
-  const count = document.getElementById('libraryCount');
-
-  if (!libraryData.length) { panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  count.textContent = libraryData.length;
-
-  // Open the list on first render so the sidebar shows songs immediately
-  if (!libraryOpen) {
-    libraryOpen = true;
-    list.style.display = 'block';
-    document.getElementById('libraryHeader').classList.add('open');
-    document.getElementById('libraryChevron').classList.add('open');
+  try {
+    const r = await fetch('/library');
+    libraryData = await r.json();
+  } catch {
+    libraryData = [];
   }
-
-  list.innerHTML = libraryData.map((v, i) => {
-    const hasSecondary = !!(v.artist || (v.tunings && v.tunings.length));
-    const tunings = (v.tunings || []).map(t =>
-      `<span class="lib-tuning">${escapeHtml(t)}</span>`
-    ).join('');
-    return `
-    <div class="lib-item ${v.id === currentVideoId ? 'active' : ''}" onclick="openFromLibrary(${i})">
-      <span class="lib-icon">${v.id === currentVideoId ? '▶' : '○'}</span>
-      <div class="lib-body">
-        <div class="lib-row-top">
-          <span class="lib-title">${escapeHtml(v.title)}</span>
-          ${v.duration ? `<span class="lib-dur">${fmt(v.duration)}</span>` : ''}
-        </div>
-        ${hasSecondary ? `
-          <div class="lib-row-bot">
-            ${v.artist ? `<span class="lib-artist">${escapeHtml(v.artist)}</span>` : ''}
-            ${tunings}
-          </div>
-        ` : ''}
-      </div>
-      <a class="lib-action" href="${escapeHtml(v.file)}" download title="Download file" onclick="event.stopPropagation()">↓</a>
-      <button class="lib-action del" title="Delete video" onclick="event.stopPropagation(); deleteVideo(${i})">✕</button>
-    </div>
-  `;
-  }).join('');
 }
 
-function toggleLibrary() {
-  libraryOpen = !libraryOpen;
-  document.getElementById('libraryList').style.display   = libraryOpen ? 'block' : 'none';
-  document.getElementById('libraryHeader').classList.toggle('open', libraryOpen);
-  document.getElementById('libraryChevron').classList.toggle('open', libraryOpen);
+async function loadAllTags() {
+  try { allTags = await (await fetch('/tags')).json(); } catch { allTags = []; }
 }
 
-async function openFromLibrary(i) {
-  const entry = libraryData[i];
-  const { id, file, title } = entry;
-  currentVideoId = id;
-  video.src = file;
-  setStatus('📁 ' + title);
-  renderLibrary();
-
-  document.getElementById('videoNotes').value = entry.notes ?? '';
-  document.getElementById('videoArtist').value = entry.artist ?? '';
-  renderTagRow(document.getElementById('videoTagRow'));
-  renderTuningRow(document.getElementById('videoTuningRow'));
-
-  const r = await fetch('/segments/' + id);
-  segments = await r.json();
-  looping = false; loopIdx = 0;
-  loopBtn.classList.remove('on');
-  loopBtn.textContent = '⟳ LOOP';
-  resetSpeed();
-  redrawTimeline();
-  redrawList();
-  renderCollections(); // segment-match counts depend on the current video
+async function loadAllTunings() {
+  try { allTunings = await (await fetch('/tunings')).json(); } catch { allTunings = []; }
 }
 
-async function deleteVideo(i) {
-  const { id, title } = libraryData[i];
-  if (!confirm(`Delete "${title}"?\nThis removes the file from disk.`)) return;
-  const r = await fetch('/library/' + id, { method: 'DELETE' });
-  const d = await r.json();
-  if (!d.success) { setStatus('❌ Delete failed'); return; }
+async function loadCollections() {
+  try { collections = await (await fetch('/collections')).json(); } catch { collections = []; }
+}
 
-  // If the deleted video was playing, reset the player
-  if (id === currentVideoId) {
-    video.removeAttribute('src');
-    video.load();
-    currentVideoId = null;
-    segments = []; looping = false; loopIdx = 0;
-    loopBtn.classList.remove('on');
-    loopBtn.textContent = '⟳ LOOP';
-    document.getElementById('controlPanel').style.display = 'none';
-    document.getElementById('segPanel').style.display     = 'none';
-    document.getElementById('notesPanel').style.display   = 'none';
-    document.getElementById('videoNotes').value = '';
-    document.getElementById('videoArtist').value = '';
-    document.getElementById('videoTagRow').innerHTML = '';
-    document.getElementById('videoTuningRow').innerHTML = '';
-    redrawList();
-    setStatus('🗑 Deleted');
+async function loadSegmentsFor(id) {
+  try {
+    const r = await fetch('/segments/' + id);
+    return await r.json();
+  } catch {
+    return [];
   }
-  await loadLibrary();
 }
 
-// ── Download with SSE progress ────────────────────────────────────────────
+async function loadAllSegmentCounts() {
+  // Parallel fetch of segment counts for every library entry. Cheap for ~17 entries.
+  const entries = await Promise.all(libraryData.map(async v => {
+    const segs = await loadSegmentsFor(v.id);
+    return [v.id, Array.isArray(segs) ? segs.length : 0];
+  }));
+  segCounts = Object.fromEntries(entries);
+}
+
+function scheduleSegmentSave() {
+  if (!currentVideoId) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSegments, 600);
+}
+
+async function saveSegments() {
+  if (!currentVideoId) return;
+  await fetch('/segments/' + currentVideoId, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(segments)
+  });
+  if (saveDotEl) {
+    saveDotEl.classList.add('visible');
+    setTimeout(() => saveDotEl.classList.remove('visible'), 1200);
+  }
+  segCounts[currentVideoId] = segments.length;
+}
+
+// ── Cookies ───────────────────────────────────────────────────────────────
+async function checkCookies() {
+  try {
+    const { exists } = await fetch('/cookies').then(r => r.json());
+    setCookiesUI(exists);
+  } catch { /* drawer just stays inactive */ }
+}
+
+function setCookiesUI(active) {
+  const bar    = document.getElementById('cookiesBar');
+  const text   = document.getElementById('cookiesText');
+  const remove = document.getElementById('cookiesRemove');
+  if (!bar) return;
+  bar.classList.toggle('active', active);
+  bar.style.cursor = active ? 'default' : 'pointer';
+  text.textContent = active
+    ? 'cookies.txt loaded — YouTube downloads enabled'
+    : 'No cookies.txt — click or drop file to enable downloads';
+  remove.style.display = active ? '' : 'none';
+}
+
+async function uploadCookies(content) {
+  const r = await fetch('/cookies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: content
+  });
+  if (r.ok) { setCookiesUI(true); setStatus('🍪 cookies.txt loaded'); }
+  else      { setStatus('❌ Failed to upload cookies'); }
+}
+
+async function removeCookies() {
+  await fetch('/cookies', { method: 'DELETE' });
+  setCookiesUI(false);
+  setStatus('🍪 cookies.txt removed');
+}
+
+function cookiesFileChosen(input) {
+  const f = input.files?.[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => uploadCookies(r.result);
+  r.readAsText(f);
+  input.value = '';
+}
+function cookiesDragOver(e) { e.preventDefault(); document.getElementById('cookiesBar').classList.add('dragover'); }
+function cookiesDragLeave()  { document.getElementById('cookiesBar').classList.remove('dragover'); }
+function cookiesDrop(e) {
+  e.preventDefault();
+  document.getElementById('cookiesBar').classList.remove('dragover');
+  const f = e.dataTransfer?.files?.[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => uploadCookies(r.result);
+  r.readAsText(f);
+}
+
+// ── Download drawer + SSE progress ────────────────────────────────────────
+function toggleDownloadPanel() {
+  const drawer = document.getElementById('downloadDrawer');
+  const btn    = document.getElementById('atlasAddYtBtn');
+  const isOpen = drawer.classList.contains('open');
+  if (isOpen) {
+    drawer.classList.remove('open');
+    btn?.classList.remove('active');
+    btn?.setAttribute('aria-expanded', 'false');
+    drawer.addEventListener('transitionend', () => {
+      if (!drawer.classList.contains('open')) drawer.hidden = true;
+    }, { once: true });
+  } else {
+    drawer.hidden = false;
+    requestAnimationFrame(() => {
+      drawer.classList.add('open');
+      btn?.classList.add('active');
+      btn?.setAttribute('aria-expanded', 'true');
+      document.getElementById('urlInput').focus();
+    });
+  }
+}
+
 async function loadVideo() {
   const url = document.getElementById('urlInput').value.trim();
   if (!url) return;
 
   const sessionId = Math.random().toString(36).slice(2);
 
-  // Open SSE stream before the POST so we don't miss early events
   const es = new EventSource('/progress/' + sessionId);
   const progressFill  = document.getElementById('progressFill');
   const progressLabel = document.getElementById('progressLabel');
@@ -264,7 +324,7 @@ async function loadVideo() {
     setStatus('⏳ Downloading…');
   });
 
-  es.addEventListener('done', e => {
+  es.addEventListener('done', async e => {
     es.close();
     progressWrap.style.display = 'none';
     progressLabel.textContent  = '';
@@ -272,15 +332,13 @@ async function loadVideo() {
 
     const d = JSON.parse(e.data);
     if (d.success) {
-      currentVideoId = d.id;
-      video.src = d.file;
       setStatus('✅ ' + d.title);
-      segments = []; looping = false; loopIdx = 0;
-      loopBtn.classList.remove('on');
-      loopBtn.textContent = '⟳ LOOP';
-      resetSpeed();
-      redrawList();
-      loadLibrary();
+      await loadLibrary();
+      await loadAllSegmentCounts();
+      if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
+      // Auto-jump straight to Orbit on the new song.
+      switchToOrbit(d.id);
+      toggleDownloadPanel();
     } else {
       setStatus('❌ ' + d.error);
     }
@@ -293,8 +351,6 @@ async function loadVideo() {
     loadBtn.disabled = false;
   };
 
-  // Fire the download request — response is a secondary confirmation;
-  // the real result arrives via the `done` SSE event
   fetch('/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -307,95 +363,52 @@ async function loadVideo() {
   });
 }
 
-video.addEventListener('loadedmetadata', () => {
-  document.getElementById('controlPanel').style.display = 'flex';
-  document.getElementById('segPanel').style.display    = 'block';
-  document.getElementById('notesPanel').style.display   = 'block';
-  document.getElementById('tRight').textContent = fmt(video.duration);
-  redrawTimeline();
-});
+// ── Speed ─────────────────────────────────────────────────────────────────
+function setSpeed(s) {
+  s = Math.round(Math.max(SPEED_MIN, Math.min(SPEED_MAX, s)) * 100) / 100;
+  currentSpeed = s;
+  if (video) video.playbackRate = s;
+  if (window.OrbitView) OrbitView.onSpeedChange(s);
+}
 
-// ── Video notes ───────────────────────────────────────────────────────────
-const videoNotesEl = document.getElementById('videoNotes');
-videoNotesEl.addEventListener('change', async () => {
-  if (!currentVideoId) return;
-  const r = await fetch('/library/' + currentVideoId, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes: videoNotesEl.value })
-  });
-  if (!r.ok) { setStatus('❌ Failed to save video notes'); return; }
-  const updated = await r.json();
-  const entry = libraryData.find(v => v.id === currentVideoId);
-  if (entry) entry.notes = updated.notes;
-});
+function resetSpeed() { setSpeed(1); }
 
-// ── Video artist ──────────────────────────────────────────────────────────
-const videoArtistEl = document.getElementById('videoArtist');
-videoArtistEl.addEventListener('change', async () => {
-  if (!currentVideoId) return;
-  const r = await fetch('/library/' + currentVideoId, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ artist: videoArtistEl.value })
-  });
-  if (!r.ok) { setStatus('❌ Failed to save artist'); return; }
-  const updated = await r.json();
-  const entry = libraryData.find(v => v.id === currentVideoId);
-  if (entry) { entry.artist = updated.artist; }
-  renderLibrary();
-});
+// ── Volume (preserved keyboard behavior; UI-less in U1) ───────────────────
+function initVolume() {
+  if (!video) return;
+  const savedVol   = parseFloat(localStorage.getItem(VOL_KEY));
+  const savedMuted = localStorage.getItem(MUTE_KEY) === '1';
+  const v = Number.isFinite(savedVol) ? Math.min(1, Math.max(0, savedVol)) : 1;
+  video.volume = v;
+  video.muted  = savedMuted;
+}
 
-// ── Timeline seek ─────────────────────────────────────────────────────────
-tl.addEventListener('click', e => {
-  if (!video.duration) return;
-  if (e.target.classList.contains('seg-handle')) return;
-  const r = tl.getBoundingClientRect();
-  video.currentTime = ((e.clientX - r.left) / r.width) * video.duration;
-});
+function setVolume(v) {
+  if (!video) return;
+  v = Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+  video.volume = v;
+  if (v > 0 && video.muted) video.muted = false;
+  localStorage.setItem(VOL_KEY, String(v));
+  localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
+  setStatus(video.muted ? 'muted' : `volume ${Math.round(v * 100)}%`);
+}
 
-// ── Timeline drag handles ─────────────────────────────────────────────────
-tl.addEventListener('mousedown', e => {
-  const handle = e.target.closest('.seg-handle');
-  if (!handle || !video.duration) return;
-  e.preventDefault();
-  e.stopPropagation();
-  handle.classList.add('dragging');
+function toggleMute() {
+  if (!video) return;
+  video.muted = !video.muted;
+  if (!video.muted && video.volume === 0) setVolume(0.5);
+  else {
+    localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
+    setStatus(video.muted ? 'muted' : 'unmuted');
+  }
+}
 
-  const idx  = +handle.dataset.idx;
-  const edge = handle.dataset.edge;
-  const MIN_SEG = 0.15;
-  const rect = tl.getBoundingClientRect();
-
-  const onMove = (ev) => {
-    const t = Math.max(0, Math.min(video.duration, ((ev.clientX - rect.left) / rect.width) * video.duration));
-    const seg = segments[idx];
-    if (edge === 'start') seg.start = Math.min(t, seg.end - MIN_SEG);
-    else                  seg.end   = Math.max(t, seg.start + MIN_SEG);
-    redrawTimeline();
-    // keep the input field(s) in sync without losing focus elsewhere
-    const selector = `.seg-time-input[data-idx="${idx}"][data-edge="${edge}"]`;
-    const inp = document.querySelector(selector);
-    if (inp && document.activeElement !== inp) inp.value = formatEditTime(seg[edge]);
-    const durSpan = document.querySelector(`#si${idx} .seg-dur`);
-    if (durSpan) durSpan.textContent = ` · ${fmt(seg.end - seg.start, true)}`;
-  };
-  const onUp = () => {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-    handle.classList.remove('dragging');
-    scheduleSegmentSave();
-  };
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-});
-
-// ── In / Out ──────────────────────────────────────────────────────────────
+// ── Segment CRUD + loop ───────────────────────────────────────────────────
 function setIn() {
-  if (!video.src) return;
+  if (!video || !video.src) return;
   pendingIn = video.currentTime;
-  redrawTimeline();
-  setStatus(`In → ${fmt(pendingIn, true)}  ·  now press O to set Out`);
+  setStatus(`In → ${fmt(pendingIn, true)}  ·  press O to set Out`);
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
 function setOut() {
@@ -405,363 +418,67 @@ function setOut() {
   if (b - a < 0.15) { setStatus('Segment too short (min 0.15s)'); return; }
   segments.push({ start: a, end: b, color: COLORS[segments.length % COLORS.length] });
   pendingIn = null;
-  redrawTimeline();
-  redrawList();
   scheduleSegmentSave();
   setStatus(`Segment ${segments.length}: ${fmt(a, true)} → ${fmt(b, true)}  (${fmt(b - a, true)})`);
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
-// ── Playback speed ────────────────────────────────────────────────────────
-function setSpeed(s) {
-  s = Math.round(Math.max(SPEED_MIN, Math.min(SPEED_MAX, s)) * 100) / 100;
-  currentSpeed = s;
-  video.playbackRate = s;
-  document.querySelectorAll('.speed-btn').forEach(btn => {
-    btn.classList.toggle('active', parseFloat(btn.textContent) === s);
-  });
-  document.getElementById('speedValue').textContent = s.toFixed(2) + '×';
-}
-
-function resetSpeed() {
-  setSpeed(1);
-}
-
-// ── Volume ────────────────────────────────────────────────────────────────
-function initVolume() {
-  const savedVol = parseFloat(localStorage.getItem(VOL_KEY));
-  const savedMuted = localStorage.getItem(MUTE_KEY) === '1';
-  const v = Number.isFinite(savedVol) ? Math.min(1, Math.max(0, savedVol)) : 1;
-  video.volume = v;
-  video.muted = savedMuted;
-  renderVolumeUI();
-}
-
-function setVolume(v) {
-  v = Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
-  video.volume = v;
-  if (v > 0 && video.muted) video.muted = false;
-  localStorage.setItem(VOL_KEY, String(v));
-  localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
-  renderVolumeUI();
-}
-
-function toggleMute() {
-  video.muted = !video.muted;
-  if (!video.muted && video.volume === 0) setVolume(0.5);
-  else {
-    localStorage.setItem(MUTE_KEY, video.muted ? '1' : '0');
-    renderVolumeUI();
-  }
-}
-
-function onVolSlider(pct) {
-  setVolume(parseInt(pct, 10) / 100);
-}
-
-function renderVolumeUI() {
-  const slider = document.getElementById('volSlider');
-  const value  = document.getElementById('volValue');
-  const btn    = document.getElementById('volMuteBtn');
-  const pct    = Math.round(video.volume * 100);
-  const muted  = video.muted || video.volume === 0;
-  slider.value = pct;
-  value.textContent = muted ? 'muted' : pct + '%';
-  btn.classList.toggle('muted', muted);
-  btn.textContent = muted ? '🔇' : (video.volume < 0.5 ? '🔈' : '🔊');
-  btn.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
-}
-
-// ── Loop ──────────────────────────────────────────────────────────────────
 function toggleLoop() {
   if (!segments.length) { setStatus('Add a segment first'); return; }
   const firstEnabled = segments.findIndex(s => s.loopEnabled !== false);
   if (firstEnabled === -1) { setStatus('Enable at least one segment for the loop'); return; }
   looping = !looping;
-  loopBtn.classList.toggle('on', looping);
-  loopBtn.textContent = looping ? '⟳ LOOPING' : '⟳ LOOP';
   if (looping) {
     loopIdx = firstEnabled;
     video.currentTime = segments[firstEnabled].start;
-    video.play();
+    video.play().catch(() => {});
   }
+  if (window.OrbitView) OrbitView.onLoopChange();
 }
 
 function playSingle(i) {
+  if (i < 0 || i >= segments.length) return;
   loopIdx = i;
   video.currentTime = segments[i].start;
-  video.play();
+  video.play().catch(() => {});
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
 function toggleSegmentLoop(i) {
   if (i < 0 || i >= segments.length) return;
   const enabled = segments[i].loopEnabled !== false;
   segments[i].loopEnabled = !enabled;
-  const row = document.getElementById('sr' + i);
-  const btn = row && row.querySelector('.seg-loop-toggle');
-  if (row) row.classList.toggle('loop-disabled', enabled); // flipped → now disabled if was enabled
-  if (btn) {
-    btn.classList.toggle('on', !enabled);
-    btn.setAttribute('aria-pressed', String(!enabled));
-    btn.setAttribute('aria-label',
-      !enabled ? `Exclude segment ${i + 1} from loop` : `Include segment ${i + 1} in loop`);
-    btn.title = !enabled ? 'Included in loop — click to toggle' : 'Excluded from loop — click to toggle';
-  }
   scheduleSegmentSave();
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
 function removeSegment(i) {
   segments.splice(i, 1);
   if (loopIdx >= segments.length) loopIdx = 0;
-  redrawTimeline();
-  redrawList();
   scheduleSegmentSave();
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
 function clearAll() {
   segments = []; pendingIn = null; looping = false; loopIdx = 0;
-  loopBtn.classList.remove('on');
-  loopBtn.textContent = '⟳ LOOP';
-  redrawTimeline();
-  redrawList();
   scheduleSegmentSave();
+  if (window.OrbitView) OrbitView.refreshSegments();
 }
 
-// ── Segment persistence ───────────────────────────────────────────────────
-function scheduleSegmentSave() {
-  if (!currentVideoId) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveSegments, 600);
-}
-
-async function saveSegments() {
-  if (!currentVideoId) return;
-  await fetch('/segments/' + currentVideoId, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(segments)
-  });
-  const dot = document.getElementById('saveDot');
-  dot.classList.add('visible');
-  setTimeout(() => dot.classList.remove('visible'), 1200);
-}
-
-// ── Render timeline ───────────────────────────────────────────────────────
-function redrawTimeline() {
-  tl.querySelectorAll('.seg-bar, .in-marker, .in-label, .seg-handle').forEach(e => e.remove());
-  const d = video.duration || 1;
-
-  segments.forEach((seg, i) => {
-    const bar = document.createElement('div');
-    bar.className = 'seg-bar';
-    bar.style.cssText = `left:${seg.start/d*100}%;width:${(seg.end-seg.start)/d*100}%;background:${seg.color};opacity:0.45;`;
-    tl.insertBefore(bar, ph);
-
-    if (!video.duration) return;
-    const left = document.createElement('div');
-    left.className = 'seg-handle';
-    left.dataset.idx = i; left.dataset.edge = 'start';
-    left.style.left = `calc(${seg.start/d*100}% - 4px)`;
-    const right = document.createElement('div');
-    right.className = 'seg-handle';
-    right.dataset.idx = i; right.dataset.edge = 'end';
-    right.style.left = `calc(${seg.end/d*100}% - 4px)`;
-    tl.insertBefore(left, ph);
-    tl.insertBefore(right, ph);
-  });
-
-  if (pendingIn !== null) {
-    const pct = pendingIn / d * 100;
-    const mk = document.createElement('div');
-    mk.className = 'in-marker';
-    mk.style.left = pct + '%';
-    const lb = document.createElement('div');
-    lb.className = 'in-label';
-    lb.textContent = 'IN';
-    lb.style.left = (pct + 0.3) + '%';
-    tl.appendChild(mk);
-    tl.appendChild(lb);
+// ── Fullscreen ────────────────────────────────────────────────────────────
+function toggleFullscreen() {
+  const wrap = document.getElementById('orbitVideoWrap');
+  if (!wrap) return;
+  if (!document.fullscreenElement) {
+    (wrap.requestFullscreen || wrap.webkitRequestFullscreen)?.call(wrap);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
   }
 }
 
-// ── Render segment list ───────────────────────────────────────────────────
-function redrawList() {
-  const list = document.getElementById('segList');
-  if (!segments.length) {
-    list.innerHTML = '<div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>';
-    return;
-  }
-  list.innerHTML = segments.map((s, i) => `
-    <div class="seg-row${s.loopEnabled === false ? ' loop-disabled' : ''}" id="sr${i}">
-      <div class="seg-item" id="si${i}">
-        <div class="seg-dot" style="background:${s.color}25;color:${s.color}">${i + 1}</div>
-        <div class="seg-info">
-          <input class="seg-label" data-idx="${i}" placeholder="Name segment ${i + 1}" maxlength="80" aria-label="Segment ${i + 1} label">
-          <div class="seg-times">
-            <input class="seg-time-input" data-idx="${i}" data-edge="start" aria-label="Segment ${i + 1} start time">
-            <span class="seg-arrow">→</span>
-            <input class="seg-time-input" data-idx="${i}" data-edge="end" aria-label="Segment ${i + 1} end time">
-            <span class="seg-dur"> · ${fmt(s.end - s.start, true)}</span>
-          </div>
-        </div>
-        <div class="seg-btns">
-          <button class="icon-btn seg-loop-toggle${s.loopEnabled === false ? '' : ' on'}" data-idx="${i}" title="${s.loopEnabled === false ? 'Excluded from loop' : 'Included in loop'} — click to toggle" aria-label="${s.loopEnabled === false ? 'Include segment ' + (i+1) + ' in loop' : 'Exclude segment ' + (i+1) + ' from loop'}" aria-pressed="${s.loopEnabled !== false}">🔁</button>
-          <button class="icon-btn seg-notes-toggle${s.notes ? ' on' : ''}" data-idx="${i}" style="background:#22223a;color:#8a8aa5" title="Notes">📝</button>
-          <button class="icon-btn" style="background:${s.color}20;color:${s.color}" onclick="playSingle(${i})" title="Play">▶</button>
-          <button class="icon-btn" style="background:#ff446620;color:#ff4466" onclick="removeSegment(${i})" title="Remove">✕</button>
-        </div>
-      </div>
-      <div class="seg-notes-wrap${s.notes ? ' open' : ''}" id="sn${i}">
-        <textarea class="seg-notes" data-idx="${i}" placeholder="Notes for segment ${i + 1}…" maxlength="2000" aria-label="Segment ${i + 1} notes"></textarea>
-      </div>
-    </div>
-  `).join('');
-
-  list.querySelectorAll('.seg-label').forEach(inp => {
-    const idx = +inp.dataset.idx;
-    inp.value = segments[idx].label ?? '';
-    // commit on blur — `change` fires when value differs from focus-time value
-    inp.addEventListener('change', () => {
-      segments[idx].label = inp.value;
-      scheduleSegmentSave();
-    });
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-      else if (e.key === 'Escape') {
-        e.preventDefault();
-        inp.value = segments[idx].label ?? '';  // restore from committed state
-        inp.blur();
-      }
-    });
-  });
-
-  const MIN_SEG = 0.15;
-  list.querySelectorAll('.seg-time-input').forEach(inp => {
-    const idx  = +inp.dataset.idx;
-    const edge = inp.dataset.edge; // 'start' | 'end'
-    inp.value = formatEditTime(segments[idx][edge]);
-    inp.addEventListener('change', () => {
-      const parsed = parseTime(inp.value);
-      const dur = video.duration || Infinity;
-      const other = edge === 'start' ? segments[idx].end : segments[idx].start;
-      const valid =
-        Number.isFinite(parsed) && parsed >= 0 && parsed <= dur &&
-        (edge === 'start' ? parsed + MIN_SEG <= other : parsed - MIN_SEG >= other);
-      if (!valid) {
-        inp.classList.add('error');
-        setStatus(edge === 'start'
-          ? `Invalid start — must be < end and ≥ 0`
-          : `Invalid end — must be > start and ≤ video duration`);
-        // restore prior value after a brief moment so the user sees the error
-        setTimeout(() => { inp.value = formatEditTime(segments[idx][edge]); inp.classList.remove('error'); }, 900);
-        return;
-      }
-      segments[idx][edge] = parsed;
-      inp.classList.remove('error');
-      inp.value = formatEditTime(parsed); // canonicalize
-      scheduleSegmentSave();
-      redrawTimeline();
-      // update the duration span live without a full redrawList (avoids losing focus on siblings)
-      const durSpan = inp.parentElement.querySelector('.seg-dur');
-      if (durSpan) durSpan.textContent = ` · ${fmt(segments[idx].end - segments[idx].start, true)}`;
-    });
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-      else if (e.key === 'Escape') {
-        e.preventDefault();
-        inp.classList.remove('error');
-        inp.value = formatEditTime(segments[idx][edge]);
-        inp.blur();
-      }
-    });
-  });
-
-  list.querySelectorAll('.seg-notes').forEach(ta => {
-    const idx = +ta.dataset.idx;
-    ta.value = segments[idx].notes ?? '';
-    ta.addEventListener('change', () => {
-      segments[idx].notes = ta.value;
-      scheduleSegmentSave();
-      // keep the toggle indicator in sync with content
-      const toggle = list.querySelector(`.seg-notes-toggle[data-idx="${idx}"]`);
-      if (toggle) toggle.classList.toggle('on', !!ta.value.trim());
-    });
-    ta.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { e.preventDefault(); ta.value = segments[idx].notes ?? ''; ta.blur(); }
-    });
-  });
-
-  list.querySelectorAll('.seg-notes-toggle').forEach(btn => {
-    const idx = +btn.dataset.idx;
-    btn.addEventListener('click', () => {
-      const wrap = document.getElementById('sn' + idx);
-      const willOpen = !wrap.classList.contains('open');
-      wrap.classList.toggle('open', willOpen);
-      if (willOpen) wrap.querySelector('.seg-notes').focus();
-    });
-  });
-
-  list.querySelectorAll('.seg-loop-toggle').forEach(btn => {
-    const idx = +btn.dataset.idx;
-    btn.addEventListener('click', () => toggleSegmentLoop(idx));
-  });
-
-  applyCollectionFilter();
-}
-
-// ── Keyboard ──────────────────────────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if (e.target.matches('input, textarea, [contenteditable="true"]')) return;
-  switch (e.key) {
-    case 'i': case '[': setIn();  break;
-    case 'o': case ']': setOut(); break;
-    case ' ':
-      e.preventDefault();
-      video.paused ? video.play() : video.pause();
-      break;
-    case 'ArrowLeft':
-      e.preventDefault();
-      video.currentTime = Math.max(0, video.currentTime - 5);
-      break;
-    case 'ArrowRight':
-      e.preventDefault();
-      video.currentTime = Math.min(video.duration, video.currentTime + 5);
-      break;
-    case 'ArrowUp':
-      e.preventDefault();
-      setVolume(video.volume + VOL_STEP);
-      break;
-    case 'ArrowDown':
-      e.preventDefault();
-      setVolume(video.volume - VOL_STEP);
-      break;
-    case 'm': toggleMute(); break;
-    case ',': video.currentTime = Math.max(0, video.currentTime - 0.1); break;
-    case '.': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
-    case 'l': toggleLoop(); break;
-    case 'L': {
-      if (!segments.length) { setStatus('Add a segment first'); break; }
-      const row = document.activeElement && document.activeElement.closest
-        ? document.activeElement.closest('.seg-row')
-        : null;
-      const idx = row ? +row.id.slice(2) : (looping ? loopIdx : -1);
-      if (idx < 0 || idx >= segments.length) { setStatus('Focus a segment first'); break; }
-      toggleSegmentLoop(idx);
-      break;
-    }
-    case 'f': toggleFullscreen(); break;
-    case '-': setSpeed(currentSpeed - SPEED_STEP); break;
-    case '=': setSpeed(currentSpeed + SPEED_STEP); break;
-    case '0': setSpeed(1); break;
-    case 'd': toggleDownloadPanel(); break;
-  }
-});
-
-// ── Tags ──────────────────────────────────────────────────────────────────
+// ── Tags + tunings (Notes panel — reused from Orbit) ──────────────────────
 const MAX_TAG_LEN = 40, MAX_TAGS_PER_RESOURCE = 20;
-
-async function loadAllTags() {
-  try { allTags = await (await fetch('/tags')).json(); } catch { allTags = []; }
-}
+const MAX_TUNING_LEN = 40, MAX_TUNINGS_PER_ENTRY = 6;
 
 function getVideoTags() {
   return libraryData.find(v => v.id === currentVideoId)?.tags ?? [];
@@ -778,92 +495,35 @@ async function setVideoTags(tags) {
   const entry = libraryData.find(v => v.id === currentVideoId);
   if (entry) entry.tags = updated.tags;
   await loadAllTags();
-  renderCollections();
-  applyCollectionFilter();
 }
 
 function renderTagRow(row) {
   const tags = getVideoTags();
-  const filterLower = activeFilter.map(t => t.toLowerCase());
-  const isMatch = (t) => filterLower.includes(t.toLowerCase());
-
   row.innerHTML = tags.map((t, i) => `
-    <span class="tag-chip${isMatch(t) ? ' match' : ''}">
+    <span class="tag-chip">
       ${escapeHtml(t)}<span class="tag-x" data-i="${i}" title="Remove">×</span>
     </span>
   `).join('') + `<input class="tag-input" placeholder="+ tag" maxlength="${MAX_TAG_LEN}" aria-label="Add tag"><div class="tag-suggest"></div>`;
 
-  const inp = row.querySelector('.tag-input');
-  const sug = row.querySelector('.tag-suggest');
-  let hi = -1;
-
-  const commit = async (raw) => {
-    const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
-    if (!trimmed) return;
-    const current = getVideoTags();
-    if (current.length >= MAX_TAGS_PER_RESOURCE) { setStatus('Tag limit reached (20)'); return; }
-    if (current.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tag already added'); return; }
-    await setVideoTags([...current, trimmed]);
-    renderTagRow(row);
-    row.querySelector('.tag-input').focus();
-  };
-
-  row.querySelectorAll('.tag-x').forEach(x => {
-    x.addEventListener('click', async () => {
-      const i = +x.dataset.i;
+  wireTagInput(row, {
+    pool: () => allTags,
+    current: getVideoTags,
+    commit: async raw => {
+      const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
+      if (!trimmed) return;
+      const cur = getVideoTags();
+      if (cur.length >= MAX_TAGS_PER_RESOURCE) { setStatus('Tag limit reached (20)'); return; }
+      if (cur.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tag already added'); return; }
+      await setVideoTags([...cur, trimmed]);
+      renderTagRow(row);
+      row.querySelector('.tag-input').focus();
+    },
+    onRemove: async i => {
       const next = getVideoTags().filter((_, n) => n !== i);
       await setVideoTags(next);
       renderTagRow(row);
-    });
+    },
   });
-
-  inp.addEventListener('input', () => {
-    const q = inp.value.trim().toLowerCase();
-    const current = getVideoTags().map(t => t.toLowerCase());
-    const matches = allTags.filter(t =>
-      t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
-    ).slice(0, 8);
-    if (!q || !matches.length) { sug.classList.remove('open'); return; }
-    hi = -1;
-    sug.innerHTML = matches.map((t, i) =>
-      `<div class="tag-suggest-item" data-tag="${escapeHtml(t)}" data-i="${i}">${escapeHtml(t)}</div>`
-    ).join('');
-    sug.classList.add('open');
-    sug.querySelectorAll('.tag-suggest-item').forEach(item => {
-      item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); sug.classList.remove('open'); inp.value = ''; });
-    });
-  });
-
-  inp.addEventListener('keydown', e => {
-    const items = [...sug.querySelectorAll('.tag-suggest-item')];
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
-      commit(pick); sug.classList.remove('open'); inp.value = '';
-    } else if (e.key === 'Escape') {
-      sug.classList.remove('open'); inp.blur();
-    } else if (e.key === 'ArrowDown' && items.length) {
-      e.preventDefault(); hi = (hi + 1) % items.length;
-      items.forEach((it, i) => it.classList.toggle('active', i === hi));
-    } else if (e.key === 'ArrowUp' && items.length) {
-      e.preventDefault(); hi = (hi - 1 + items.length) % items.length;
-      items.forEach((it, i) => it.classList.toggle('active', i === hi));
-    }
-  });
-  inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
-}
-
-function renderAllTagRows() {
-  // Only the video-notes tag row uses renderTagRow.
-  // The filter row (#filterTagRow) renders via renderFilterRow.
-  document.querySelectorAll('#videoTagRow.tag-row').forEach(renderTagRow);
-}
-
-// ── Tunings ───────────────────────────────────────────────────────────────
-const MAX_TUNING_LEN = 40, MAX_TUNINGS_PER_ENTRY = 6;
-
-async function loadAllTunings() {
-  try { allTunings = await (await fetch('/tunings')).json(); } catch { allTunings = []; }
 }
 
 function getVideoTunings() {
@@ -881,7 +541,8 @@ async function setVideoTunings(tunings) {
   const entry = libraryData.find(v => v.id === currentVideoId);
   if (entry) entry.tunings = updated.tunings;
   await loadAllTunings();
-  renderLibrary();
+  // Tile color may have changed — rerender Atlas tiles next time it's shown.
+  if (window.OrbitView && currentView === 'orbit') OrbitView.refreshHeader();
 }
 
 function renderTuningRow(row) {
@@ -892,36 +553,43 @@ function renderTuningRow(row) {
     </span>
   `).join('') + `<input class="tag-input" placeholder="+ tuning" maxlength="${MAX_TUNING_LEN}" aria-label="Add tuning"><div class="tag-suggest"></div>`;
 
+  wireTagInput(row, {
+    pool: () => allTunings,
+    current: getVideoTunings,
+    commit: async raw => {
+      const trimmed = String(raw || '').trim().slice(0, MAX_TUNING_LEN);
+      if (!trimmed) return;
+      const cur = getVideoTunings();
+      if (cur.length >= MAX_TUNINGS_PER_ENTRY) { setStatus(`Tuning limit reached (${MAX_TUNINGS_PER_ENTRY})`); return; }
+      if (cur.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tuning already added'); return; }
+      const canonical = allTunings.find(t => t.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+      await setVideoTunings([...cur, canonical]);
+      renderTuningRow(row);
+      row.querySelector('.tag-input').focus();
+    },
+    onRemove: async i => {
+      const next = getVideoTunings().filter((_, n) => n !== i);
+      await setVideoTunings(next);
+      renderTuningRow(row);
+    },
+  });
+}
+
+// Shared autocomplete wiring for tag + tuning rows.
+function wireTagInput(row, { pool, current, commit, onRemove }) {
   const inp = row.querySelector('.tag-input');
   const sug = row.querySelector('.tag-suggest');
   let hi = -1;
 
-  const commit = async (raw) => {
-    const trimmed = String(raw || '').trim().slice(0, MAX_TUNING_LEN);
-    if (!trimmed) return;
-    const current = getVideoTunings();
-    if (current.length >= MAX_TUNINGS_PER_ENTRY) { setStatus(`Tuning limit reached (${MAX_TUNINGS_PER_ENTRY})`); return; }
-    if (current.some(t => t.toLowerCase() === trimmed.toLowerCase())) { setStatus('Tuning already added'); return; }
-    const canonical = allTunings.find(t => t.toLowerCase() === trimmed.toLowerCase()) || trimmed;
-    await setVideoTunings([...current, canonical]);
-    renderTuningRow(row);
-    row.querySelector('.tag-input').focus();
-  };
-
   row.querySelectorAll('.tag-x').forEach(x => {
-    x.addEventListener('click', async () => {
-      const i = +x.dataset.i;
-      const next = getVideoTunings().filter((_, n) => n !== i);
-      await setVideoTunings(next);
-      renderTuningRow(row);
-    });
+    x.addEventListener('click', () => onRemove(+x.dataset.i));
   });
 
   inp.addEventListener('input', () => {
     const q = inp.value.trim().toLowerCase();
-    const current = getVideoTunings().map(t => t.toLowerCase());
-    const matches = allTunings.filter(t =>
-      t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
+    const cur = current().map(t => t.toLowerCase());
+    const matches = pool().filter(t =>
+      t.toLowerCase().includes(q) && !cur.includes(t.toLowerCase())
     ).slice(0, 8);
     if (!q || !matches.length) { sug.classList.remove('open'); return; }
     hi = -1;
@@ -930,7 +598,12 @@ function renderTuningRow(row) {
     ).join('');
     sug.classList.add('open');
     sug.querySelectorAll('.tag-suggest-item').forEach(item => {
-      item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); sug.classList.remove('open'); inp.value = ''; });
+      item.addEventListener('mousedown', e => {
+        e.preventDefault();
+        commit(item.dataset.tag);
+        sug.classList.remove('open');
+        inp.value = '';
+      });
     });
   });
 
@@ -941,114 +614,7 @@ function renderTuningRow(row) {
       const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
       commit(pick); sug.classList.remove('open'); inp.value = '';
     } else if (e.key === 'Escape') {
-      sug.classList.remove('open'); inp.blur();
-    } else if (e.key === 'ArrowDown' && items.length) {
-      e.preventDefault(); hi = (hi + 1) % items.length;
-      items.forEach((it, i) => it.classList.toggle('active', i === hi));
-    } else if (e.key === 'ArrowUp' && items.length) {
-      e.preventDefault(); hi = (hi - 1 + items.length) % items.length;
-      items.forEach((it, i) => it.classList.toggle('active', i === hi));
-    }
-  });
-  inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-// ── Collections / Filter ──────────────────────────────────────────────────
-async function loadCollections() {
-  try {
-    collections = await (await fetch('/collections')).json();
-  } catch { collections = []; }
-  document.getElementById('collPanel').style.display = 'block';
-  refreshFilter();
-}
-
-function collMatchCounts(query) {
-  const q = query.map(t => t.toLowerCase());
-  let videos = 0;
-  for (const v of libraryData) {
-    const vTags = (v.tags ?? []).map(t => t.toLowerCase());
-    if (q.every(t => vTags.includes(t))) videos++;
-  }
-  return { videos };
-}
-
-// Called whenever activeFilter changes — rerenders everything that depends on it.
-function refreshFilter() {
-  // Derive activeCollId: which saved collection's query matches the current filter exactly?
-  activeCollId = null;
-  if (activeFilter.length) {
-    const filterKey = [...activeFilter].map(t => t.toLowerCase()).sort().join('\0');
-    const hit = collections.find(c => {
-      const ckey = [...c.query].map(t => t.toLowerCase()).sort().join('\0');
-      return ckey === filterKey;
-    });
-    if (hit) activeCollId = hit.id;
-  }
-  renderFilterRow();
-  renderMatchRow();
-  renderCollections();
-  applyCollectionFilter();
-}
-
-// Filter tag row — a chip picker fed by allTags, writes to activeFilter.
-function renderFilterRow() {
-  const row = document.getElementById('filterTagRow');
-  row.innerHTML = activeFilter.map((t, i) => `
-    <span class="tag-chip match">
-      ${escapeHtml(t)}<span class="tag-x" data-i="${i}" title="Remove">×</span>
-    </span>
-  `).join('') + `<input class="tag-input" placeholder="+ pick a tag" maxlength="${MAX_TAG_LEN}" aria-label="Add filter tag"><div class="tag-suggest"></div>`;
-
-  row.querySelectorAll('.tag-x').forEach(x => {
-    x.addEventListener('click', () => {
-      const i = +x.dataset.i;
-      activeFilter = activeFilter.filter((_, n) => n !== i);
-      refreshFilter();
-    });
-  });
-
-  const inp = row.querySelector('.tag-input');
-  const sug = row.querySelector('.tag-suggest');
-  let hi = -1;
-
-  const commit = (raw) => {
-    const trimmed = String(raw || '').trim().slice(0, MAX_TAG_LEN);
-    if (!trimmed) return;
-    if (activeFilter.some(t => t.toLowerCase() === trimmed.toLowerCase())) return;
-    // Use canonical casing from allTags when available
-    const canonical = allTags.find(t => t.toLowerCase() === trimmed.toLowerCase()) || trimmed;
-    activeFilter.push(canonical);
-    refreshFilter();
-    setTimeout(() => document.querySelector('#filterTagRow .tag-input')?.focus(), 0);
-  };
-
-  inp.addEventListener('input', () => {
-    const q = inp.value.trim().toLowerCase();
-    const current = activeFilter.map(t => t.toLowerCase());
-    const matches = allTags.filter(t =>
-      t.toLowerCase().includes(q) && !current.includes(t.toLowerCase())
-    ).slice(0, 8);
-    if (!q || !matches.length) { sug.classList.remove('open'); return; }
-    hi = -1;
-    sug.innerHTML = matches.map((t, i) =>
-      `<div class="tag-suggest-item" data-tag="${escapeHtml(t)}" data-i="${i}">${escapeHtml(t)}</div>`
-    ).join('');
-    sug.classList.add('open');
-    sug.querySelectorAll('.tag-suggest-item').forEach(item => {
-      item.addEventListener('mousedown', e => { e.preventDefault(); commit(item.dataset.tag); });
-    });
-  });
-  inp.addEventListener('keydown', e => {
-    const items = [...sug.querySelectorAll('.tag-suggest-item')];
-    if (e.key === 'Enter') {
       e.preventDefault();
-      const pick = hi >= 0 && items[hi] ? items[hi].dataset.tag : inp.value;
-      commit(pick);
-    } else if (e.key === 'Escape') {
       sug.classList.remove('open'); inp.blur();
     } else if (e.key === 'ArrowDown' && items.length) {
       e.preventDefault(); hi = (hi + 1) % items.length;
@@ -1061,210 +627,188 @@ function renderFilterRow() {
   inp.addEventListener('blur', () => setTimeout(() => sug.classList.remove('open'), 120));
 }
 
-// Match-count + Save-as row.
-function renderMatchRow() {
-  const row = document.getElementById('collMatchRow');
-  if (!activeFilter.length) {
-    row.innerHTML = `<span style="color:#33335a;font-style:italic">Pick one or more tags to filter the library.</span>`;
+// ── View routing ──────────────────────────────────────────────────────────
+function switchToAtlas({ pause = true } = {}) {
+  if (pause && video && !video.paused) video.pause();
+  currentView = 'atlas';
+  localStorage.setItem(VIEW_KEY, 'atlas');
+  document.getElementById('orbitRoot').hidden = true;
+  document.getElementById('atlasRoot').hidden = false;
+  // Defer to rAF so the just-unhidden board has a measurable clientHeight.
+  if (window.AtlasView) requestAnimationFrame(() => AtlasView.render());
+}
+
+function switchToOrbit(videoId) {
+  const entry = libraryData.find(v => v.id === videoId);
+  if (!entry) { setStatus('Song not found'); return; }
+  currentView = 'orbit';
+  localStorage.setItem(VIEW_KEY, 'orbit');
+  localStorage.setItem(SONG_KEY, videoId);
+  document.getElementById('atlasRoot').hidden = true;
+  document.getElementById('orbitRoot').hidden = false;
+  if (window.OrbitView) OrbitView.open(entry);
+}
+
+// Persist playhead while in Orbit so refresh restores position.
+function persistPlayhead() {
+  if (currentView !== 'orbit' || !currentVideoId || !video || !video.duration) return;
+  localStorage.setItem(TIME_KEY_PREFIX + currentVideoId, String(video.currentTime));
+}
+
+// ── Keyboard router ───────────────────────────────────────────────────────
+function onKeydown(e) {
+  // ⌘K / Ctrl+K — works even from inputs (Atlas only).
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    if (currentView === 'atlas') {
+      e.preventDefault();
+      const inp = document.getElementById('atlasSearch');
+      inp?.focus();
+      inp?.select?.();
+    }
     return;
   }
-  const { videos } = collMatchCounts(activeFilter);
-  const countClass = videos ? 'coll-match-count-hit' : 'coll-match-count-miss';
-  let saveHtml = '';
-  if (activeCollId) {
-    const coll = collections.find(c => c.id === activeCollId);
-    saveHtml = `<span class="coll-saved-label">· saved as "${escapeHtml(coll.name)}"</span>`;
-  } else {
-    saveHtml = `<button class="coll-save-btn" id="collSaveBtn">Save as…</button>`;
-  }
-  row.innerHTML =
-    `<span class="${countClass}">${videos} video${videos === 1 ? '' : 's'} match</span>` +
-    saveHtml +
-    ` <button class="coll-save-btn cancel" id="collClearBtn" title="Clear filter">Clear</button>`;
 
-  document.getElementById('collSaveBtn')?.addEventListener('click', showSaveForm);
-  document.getElementById('collClearBtn').addEventListener('click', () => {
-    activeFilter = [];
-    refreshFilter();
-  });
-}
-
-function showSaveForm() {
-  const row = document.getElementById('collMatchRow');
-  row.innerHTML = `
-    <input class="coll-name-input" id="collNameInput" placeholder="Collection name" maxlength="80" aria-label="Collection name">
-    <button class="coll-save-btn" id="collSaveConfirmBtn">Save</button>
-    <button class="coll-save-btn cancel" id="collSaveCancelBtn">Cancel</button>
-  `;
-  const nameInp = document.getElementById('collNameInput');
-  nameInp.focus();
-  nameInp.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); submitNewColl(); }
-    else if (e.key === 'Escape') renderMatchRow();
-  });
-  document.getElementById('collSaveConfirmBtn').addEventListener('click', submitNewColl);
-  document.getElementById('collSaveCancelBtn').addEventListener('click', renderMatchRow);
-}
-
-async function submitNewColl() {
-  const nameEl = document.getElementById('collNameInput');
-  const name = (nameEl?.value || '').trim();
-  if (!name) { setStatus('Collection needs a name'); nameEl?.focus(); return; }
-  if (!activeFilter.length) { setStatus('Pick at least one tag first'); return; }
-  const r = await fetch('/collections', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, query: activeFilter })
-  });
-  if (!r.ok) { setStatus('❌ Failed to save collection'); return; }
-  const created = await r.json();
-  const idx = collections.findIndex(c => c.id === created.id);
-  if (idx >= 0) collections[idx] = created; else collections.push(created);
-  setStatus(`💾 Saved "${created.name}"`);
-  refreshFilter(); // will recompute activeCollId → now matches the new entry
-}
-
-function renderCollections() {
-  const list = document.getElementById('collList');
-  if (!collections.length) {
-    list.innerHTML = '<div class="coll-empty">No saved collections yet — pick tags above and "Save as…".</div>';
+  // Esc closes notes panel first; second Esc returns to Atlas.
+  if (e.key === 'Escape' && currentView === 'orbit') {
+    const notes = document.getElementById('notesPanel');
+    if (notes && !notes.hidden) {
+      e.preventDefault();
+      OrbitView.toggleNotes(false);
+      return;
+    }
+    e.preventDefault();
+    switchToAtlas();
     return;
   }
-  list.innerHTML = collections.map(c => {
-    const { videos } = collMatchCounts(c.query);
-    return `<span class="coll-chip${c.id === activeCollId ? ' active' : ''}" data-id="${c.id}" title="Click to load this filter">
-      ${escapeHtml(c.name)}
-      <span class="coll-count">${videos}</span>
-      <span class="coll-del" data-id="${c.id}" title="Delete">×</span>
-    </span>`;
-  }).join('');
-  list.querySelectorAll('.coll-chip').forEach(chip => {
-    chip.addEventListener('click', e => {
-      if (e.target.classList.contains('coll-del')) return;
-      const id = chip.dataset.id;
-      if (activeCollId === id) {
-        activeFilter = [];
-      } else {
-        const coll = collections.find(c => c.id === id);
-        activeFilter = coll ? [...coll.query] : [];
-      }
-      refreshFilter();
-    });
-  });
-  list.querySelectorAll('.coll-del').forEach(x => {
-    x.addEventListener('click', async e => {
-      e.stopPropagation();
-      const id = x.dataset.id;
-      if (!confirm('Delete this collection?')) return;
-      const r = await fetch('/collections/' + id, { method: 'DELETE' });
-      if (!r.ok) { setStatus('❌ Delete failed'); return; }
-      collections = collections.filter(c => c.id !== id);
-      refreshFilter();
-    });
-  });
+
+  // Suppress other shortcuts when typing in inputs/textareas.
+  if (e.target.matches?.('input, textarea, [contenteditable="true"]')) return;
+
+  if (currentView === 'atlas') {
+    if (window.AtlasView && AtlasView.onKey(e)) return;
+    return;
+  }
+
+  // Orbit: full existing player shortcut set.
+  switch (e.key) {
+    case 'i': case '[': setIn();  break;
+    case 'o': case ']': setOut(); break;
+    case ' ':
+      e.preventDefault();
+      if (!video) break;
+      video.paused ? video.play().catch(() => {}) : video.pause();
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (video) video.currentTime = Math.max(0, video.currentTime - 5);
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (video) video.currentTime = Math.min(video.duration, video.currentTime + 5);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (video) setVolume(video.volume + VOL_STEP);
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (video) setVolume(video.volume - VOL_STEP);
+      break;
+    case 'm': toggleMute(); break;
+    case ',': if (video) video.currentTime = Math.max(0, video.currentTime - 0.1); break;
+    case '.': if (video) video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
+    case 'l': toggleLoop(); break;
+    case 'L': {
+      if (!segments.length) { setStatus('Add a segment first'); break; }
+      const idx = looping ? loopIdx : 0;
+      toggleSegmentLoop(idx);
+      break;
+    }
+    case 'f': toggleFullscreen(); break;
+    case '-': setSpeed(currentSpeed - SPEED_STEP); break;
+    case '=': setSpeed(currentSpeed + SPEED_STEP); break;
+    case '0': setSpeed(1); break;
+    case 'd': toggleDownloadPanel(); break;
+  }
 }
 
-function applyCollectionFilter() {
-  const q = activeFilter.map(t => t.toLowerCase());
-  const matches = (tags) => {
-    if (!q.length) return true;
-    const lower = (tags ?? []).map(t => t.toLowerCase());
-    return q.every(t => lower.includes(t));
+// ── Boot ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  video     = document.getElementById('player');
+  saveDotEl = document.getElementById('saveDot');
+  statusEl  = document.getElementById('status');
+
+  initVolume();
+
+  // Wire video-level notes/artist persistence (Notes panel inputs).
+  const videoNotesEl  = document.getElementById('videoNotes');
+  const videoArtistEl = document.getElementById('videoArtist');
+  videoNotesEl.addEventListener('change', async () => {
+    if (!currentVideoId) return;
+    const r = await fetch('/library/' + currentVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: videoNotesEl.value })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save video notes'); return; }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === currentVideoId);
+    if (entry) entry.notes = updated.notes;
+  });
+  videoArtistEl.addEventListener('change', async () => {
+    if (!currentVideoId) return;
+    const r = await fetch('/library/' + currentVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist: videoArtistEl.value })
+    });
+    if (!r.ok) { setStatus('❌ Failed to save artist'); return; }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === currentVideoId);
+    if (entry) entry.artist = updated.artist;
+    if (window.OrbitView && currentView === 'orbit') OrbitView.refreshHeader();
+  });
+
+  // Persist playhead lifecycle.
+  video.addEventListener('pause', persistPlayhead);
+  window.addEventListener('beforeunload', persistPlayhead);
+  setInterval(() => { if (video && !video.paused) persistPlayhead(); }, 5000);
+
+  // Resize → relayout active view.
+  window.addEventListener('resize', () => {
+    if (currentView === 'orbit' && window.OrbitView) OrbitView.relayout();
+    if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
+  });
+
+  // Fullscreen state on the FS button.
+  const onFs = () => {
+    const fsBtn = document.getElementById('fsBtn');
+    if (fsBtn) fsBtn.textContent = document.fullscreenElement ? '⤓' : '⛶';
   };
-  document.querySelectorAll('.lib-item').forEach((el, i) => {
-    el.classList.toggle('dim', !matches(libraryData[i]?.tags));
-  });
-  // re-render video tag row match highlights
-  renderAllTagRows();
-}
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
 
-// ── Utils ─────────────────────────────────────────────────────────────────
-function fmt(t, precise = false) {
-  if (!isFinite(t) || t < 0) t = 0;
-  const m  = Math.floor(t / 60);
-  const s  = Math.floor(t % 60);
-  const ds = precise ? '.' + Math.floor((t % 1) * 10) : '';
-  return `${m}:${String(s).padStart(2, '0')}${ds}`;
-}
+  // Global keydown.
+  document.addEventListener('keydown', onKeydown);
 
-// mm:ss.ss for editable inputs — two decimal precision.
-function formatEditTime(t) {
-  if (!isFinite(t) || t < 0) t = 0;
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
-}
+  // Boot data fetches.
+  await loadLibrary();
+  await Promise.all([loadCollections(), loadAllTags(), loadAllTunings()]);
+  await loadAllSegmentCounts();
+  checkCookies();
 
-// Accepts "mm:ss.ss", "m:ss", or bare seconds ("12.34"). Returns NaN on bad input.
-function parseTime(str) {
-  if (typeof str !== 'string') return NaN;
-  const s = str.trim();
-  if (!s) return NaN;
-  if (s.includes(':')) {
-    const [mPart, sPart] = s.split(':');
-    const m = Number(mPart), sec = Number(sPart);
-    if (!Number.isFinite(m) || !Number.isFinite(sec) || m < 0 || sec < 0 || sec >= 60) return NaN;
-    return m * 60 + sec;
-  }
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : NaN;
-}
+  // Initialize tuning filter from localStorage.
+  tuningFilter = localStorage.getItem(TUNING_FILTER_KEY) || null;
 
-function setStatus(msg) {
-  document.getElementById('status').textContent = msg;
-}
-
-// ── Download drawer ───────────────────────────────────────────────────────
-function toggleDownloadPanel() {
-  const drawer = document.getElementById('downloadDrawer');
-  const btn    = document.getElementById('downloadToggleBtn');
-  const isOpen = drawer.classList.contains('open');
-  if (isOpen) {
-    drawer.classList.remove('open');
-    btn.classList.remove('active');
-    btn.setAttribute('aria-expanded', 'false');
-    drawer.addEventListener('transitionend', () => {
-      if (!drawer.classList.contains('open')) drawer.hidden = true;
-    }, { once: true });
+  // Route to last view.
+  const lastView = localStorage.getItem(VIEW_KEY) || 'atlas';
+  const lastSong = localStorage.getItem(SONG_KEY);
+  if (lastView === 'orbit' && lastSong && libraryData.some(v => v.id === lastSong)) {
+    switchToOrbit(lastSong);
   } else {
-    drawer.hidden = false;
-    requestAnimationFrame(() => {
-      drawer.classList.add('open');
-      btn.classList.add('active');
-      btn.setAttribute('aria-expanded', 'true');
-      document.getElementById('urlInput').focus();
-    });
+    switchToAtlas({ pause: false });
   }
-}
 
-// ── Library search ────────────────────────────────────────────────────────
-;(function initLibrarySearch() {
-  const inp = document.getElementById('librarySearch');
-  if (!inp) return;
-  inp.addEventListener('input', () => {
-    const q = inp.value.trim().toLowerCase();
-    document.querySelectorAll('#libraryList .lib-item').forEach((el, i) => {
-      const title = (libraryData[i]?.title ?? '').toLowerCase();
-      el.style.display = (!q || title.includes(q)) ? '' : 'none';
-    });
-  });
-})();
-
-// ── Fullscreen ────────────────────────────────────────────────────────────
-function toggleFullscreen() {
-  const wrap = document.getElementById('videoWrap');
-  if (!document.fullscreenElement) {
-    (wrap.requestFullscreen || wrap.webkitRequestFullscreen).call(wrap);
-  } else {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  }
-}
-
-document.addEventListener('fullscreenchange', onFsChange);
-document.addEventListener('webkitfullscreenchange', onFsChange);
-
-function onFsChange() {
-  const inFs = !!document.fullscreenElement;
-  const fsBtn = document.getElementById('fsBtn');
-  fsBtn.classList.toggle('on', inFs);
-  fsBtn.innerHTML = inFs ? '⛶ EXIT <kbd>F</kbd>' : '⛶ FULL <kbd>F</kbd>';
-}
+  // Kick off the rAF loop.
+  rafLoop();
+});

@@ -6,12 +6,15 @@ This file governs **how** backlog items in [BACKLOG.md](BACKLOG.md) get built an
 
 ## 1. Architecture invariants — do not change without explicit approval
 
-- **Single-page vanilla JS.** No framework (React, Vue, Svelte, etc.). No bundler. No TypeScript compile step. No ESM modules — one classic `<script>` tag so `onclick="foo()"` works against top-level function declarations.
-- **Three static files** in `public/`:
+- **Single-page vanilla JS.** No framework (React, Vue, Svelte, etc.). No bundler. No TypeScript compile step. No ESM modules — classic `<script>` tags so `onclick="foo()"` works against top-level function declarations.
+- **Static files** in `public/`:
   - `index.html` — markup only
   - `styles.css` — all styling
-  - `app.js` — all client JS (globals + function declarations, loaded via `<script src="/app.js">`)
-  Do not split `app.js` further (e.g. `player.js`, `library.js`) unless it exceeds ~2500 lines *and* the user approves.
+  - `app.js` — entry, globals, shared helpers, persistence wrappers, the `<video>` rAF loop, view router, keyboard router
+  - `views/atlas.js` — Atlas tile-board view (home/library)
+  - `views/orbit.js` — Orbit circular-timeline view (practice)
+
+  All three JS files load as classic `<script>` tags in `index.html` in the order listed (no `type="module"`, no bundler, no TypeScript). Top-level function declarations and the `window.AtlasView` / `window.OrbitView` namespaces are how views expose their entry points to `app.js` and to inline `onclick=` handlers. Do not split further (e.g. `views/notes.js`) unless any single file exceeds ~2500 lines *and* the user approves.
 - **Storage = flat JSON** in `data/`. No database. No ORM. Reads/writes go through `fs.promises`. Fixtures at `data/.fixtures/pre-<taskId>/` are checked in via a `!data/.fixtures/` exception in `.gitignore`.
 - **Server stays Express 5 + `youtube-dl-exec`.** No extra deps unless a backlog item explicitly calls for one and the user approves.
 - **Client-side state is the source of truth during a session.** Persist on meaningful events (create, edit, delete, pause), not on every keystroke — debounce text inputs 400ms.

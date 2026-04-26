@@ -1,6 +1,8 @@
-# Video Looper
+# Practice Library
 
 A local-first, single-page app for downloading YouTube videos and drilling specific segments. Built for practice — pick a passage, loop it, slow it down, take notes, move on to the next.
+
+The UI has two screens: **Atlas** (home/library — a tile board of every song, color-coded by guitar tuning, sized by segment count) and **Orbit** (practice view — a circular timeline where segments are arcs and the playhead sweeps the ring like a clock hand). Click a tile to enter Orbit; press `Esc` to return.
 
 ![Video Looper UI](docs/screenshot.png)
 
@@ -32,32 +34,45 @@ YouTube requires authentication. Export a `cookies.txt` from your browser using 
 
 ## Usage
 
-1. Open the **Download** drawer (top right or press `D`), paste a YouTube URL, click **LOAD**.
-2. Pick a video from the **Library** in the sidebar.
-3. Press `I` / `O` (or use **SET IN** / **SET OUT**) to mark a segment.
-4. Add more segments as needed, then press `L` or click **LOOP** to play them in sequence.
-5. To practice one segment (or a subset), click the 🔁 button on rows you want to **exclude** — LOOP will only cycle through the remaining ones. `Shift`+`L` toggles the focused row.
-6. Tune speed, volume, and notes as you work. Everything auto-saves.
+1. From **Atlas**, click **+ Add YouTube** (top right), paste a URL, click **LOAD**. The new song lands in the library and Orbit opens automatically.
+2. From the Atlas tile board, click any tile to open **Orbit** for that song.
+3. In Orbit, press `I` / `O` to mark a segment — an arc appears on the ring.
+4. Add more segments, then press `L` (or click **Loop**) to cycle through them.
+5. To exclude a segment from the loop, click its arc / chip while looping is on, or press `Shift`+`L`.
+6. Tune speed (slider stops at 0.5 / 0.75 / 1× / 1.25× or `-` / `=` for fine control), open **Notes** for artist / tunings / tags / video notes. Everything auto-saves.
+7. Press `Esc` to return to Atlas.
 
 ## Keyboard shortcuts
 
+### Atlas (library)
+
 | Key | Action |
 |-----|--------|
+| `⌘K` / `Ctrl`+`K` | Focus search |
+| `↑` `↓` `←` `→` | Move highlighted tile |
+| `Enter` | Open the highlighted tile in Orbit |
+| `F` | Focus the tuning filter rail |
+
+### Orbit (practice)
+
+| Key | Action |
+|-----|--------|
+| `Esc` | Return to Atlas (closes the Notes panel first if open) |
 | `I` / `[` | Set in point |
 | `O` / `]` | Set out point |
 | `Space` | Play / pause |
 | `←` / `→` | Seek ±5s |
 | `,` / `.` | Seek ±0.1s |
 | `L` | Toggle loop |
-| `Shift`+`L` | Include/exclude focused segment from the loop |
-| `F` | Toggle fullscreen |
+| `Shift`+`L` | Include/exclude active segment from the loop |
+| `F` | Toggle fullscreen on the video panel |
 | `-` / `=` | Speed ±0.05× |
 | `0` | Reset speed to 1× |
 | `↑` / `↓` | Volume ±5% |
 | `M` | Mute / unmute |
 | `D` | Toggle download drawer |
 
-Shortcuts are suppressed while typing in an input or textarea, so you can take notes freely.
+Shortcuts are suppressed while typing in an input or textarea, so you can take notes freely. `⌘K` works from anywhere.
 
 ## Data layout
 
@@ -72,10 +87,14 @@ Downloaded video files live in `public/videos/` (also gitignored).
 
 ## Architecture
 
-Three static files under `public/`:
+Static files under `public/`:
 
 - `index.html` — markup
 - `styles.css` — all styles
-- `app.js` — all client JS, loaded as one classic script
+- `app.js` — entry, globals, shared helpers, persistence wrappers, the `<video>` rAF loop, view router, keyboard router
+- `views/atlas.js` — Atlas tile-board view
+- `views/orbit.js` — Orbit circular-timeline view
+
+All three JS files load as classic `<script>` tags in `index.html` in the order listed (no `type="module"`, no bundler, no TypeScript). Top-level function declarations and the `window.AtlasView` / `window.OrbitView` namespaces wire views to the rest of the app.
 
 Server is Express 5 + `youtube-dl-exec`. See [CLAUDE.md](CLAUDE.md) for the working rules when extending it.

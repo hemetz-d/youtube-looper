@@ -60,6 +60,56 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 
 ---
 
+## Tier 2.5 — UI Redesign
+
+- [x] **U1 — Atlas library + Orbit practice view**
+
+  Replace the current sidebar/timeline UI with two screens: an Atlas tile board as the home / library view, and an Orbit circular-timeline practice view that opens when a song is selected. Full design spec in `docs/redesign/SPEC.md`. Working prototype in `docs/redesign/practice-app-reference/Practice App.html`.
+
+  *Architecture touch (CLAUDE.md §1):* split `app.js` into `app.js` (entry, globals, shared helpers) + `views/atlas.js` + `views/orbit.js`, all classic `<script>` tags loaded in order. No bundler, no modules. Document the split in `CLAUDE.md` as part of this PR.
+
+  *Schema touch:* none. Reads existing `library.json` and `segments.json` as-is.
+
+  *UI:*
+  - Atlas top bar: brand + search (⌘K) + "+ Add YouTube" pill (triggers existing download drawer).
+  - Atlas tuning filter rail: one pill per unique tuning + "All".
+  - Atlas tile board: greedy row pack, color-coded by primary tuning, segment strip on large tiles.
+  - Orbit header: back chevron → song title.
+  - Orbit center: SVG ring with segment arcs, playhead arm, hub play button. Geometry scales to viewport height.
+  - Orbit right column: video → speed control + transport → passages + reverb → shortcuts.
+
+  *Keyboard:*
+  - Atlas: `⌘K` focus search, `Enter` open highlighted tile, `F` focus filter.
+  - Orbit: all existing shortcuts (`Space`, `I`, `O`, `L`, `[ ]`, `← →`, `, .`, `− =`, `F`) preserved + `Esc` to return to Atlas.
+  - No collisions with existing set.
+
+  *Persistence:*
+  - Active view + last-opened song → `localStorage` so refresh restores context.
+  - Tuning filter selection → `localStorage`.
+  - All other state goes through existing endpoints.
+
+  *Acceptance criteria:*
+  1. Loading the app shows Atlas with tiles for every entry in `library.json`.
+  2. Filter pills correctly subset the tile board.
+  3. Clicking a tile opens Orbit with that song's segments rendered as arcs.
+  4. Active segment loops correctly (gap-free, same as today).
+  5. `Esc` returns to Atlas with playback paused.
+  6. All existing keyboard shortcuts still work in Orbit.
+  7. Refresh on Orbit returns to Orbit for the same song; refresh on Atlas returns to Atlas.
+  8. Old `library.json` and `segments.json` (no `tunings`, no `label`, no `status`) load without errors — fields fall back to defaults.
+
+  *Test checklist additions (CLAUDE.md §7):*
+  - Atlas: search "warning" → only The Warning tiles visible. Click "Drop D" pill → only Drop D tiles. "All" clears.
+  - Atlas: tile count matches `library.json` length.
+  - Orbit: every segment in `segments.json` for a song renders an arc at the correct angle (`(start/duration) × 360`).
+  - Orbit: hub play/pause button toggles `<video>` playback.
+  - Orbit: speed slider stops set `video.playbackRate` to the displayed value.
+  - Orbit: viewport heights from 540px → 1200px keep the play button + Now Looping card fully on-screen.
+  - Cross-screen: open song A in Orbit, Esc, open song B → no stale state from A.
+  - Persistence: open Orbit on song X, hard-refresh → still in Orbit on X with playhead at last position.
+
+---
+
 ## Tier 3 — Forks in the road (decide before starting)
 
 Each of these is a scope jump. Open a discussion in the PR *before* writing code.

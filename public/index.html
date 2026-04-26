@@ -2,33 +2,194 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Video Looper</title>
+  <title>Practice Library</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body><div class="app">
+<body>
 
-  <!-- ── Header toolbar ──────────────────────────────────────────────── -->
-  <header class="app-header">
-    <div class="app-header-brand">
-      <span class="app-logo" aria-hidden="true">▶</span>
-      <h1>Video Looper</h1>
-    </div>
-    <div class="app-header-actions">
-      <span id="status" class="header-status"></span>
-      <button class="btn-download-toggle" id="downloadToggleBtn"
+  <!-- ════ ATLAS ════════════════════════════════════════════════════════ -->
+  <div id="atlasRoot" hidden>
+    <header class="atlas-top">
+      <div class="atlas-brand">
+        <span class="atlas-logo" aria-hidden="true"></span>
+        <div class="atlas-brand-text">
+          <span class="atlas-brand-title">Practice Library</span>
+          <span class="atlas-brand-meta" id="atlasMeta">— songs · — tunings</span>
+        </div>
+      </div>
+
+      <span class="atlas-top-spacer"></span>
+
+      <div class="atlas-search">
+        <span class="atlas-search-icon" aria-hidden="true">⌕</span>
+        <input type="text" id="atlasSearch"
+               placeholder="Search title or artist…"
+               aria-label="Search library"
+               autocomplete="off" />
+        <span class="atlas-search-hint" aria-hidden="true">⌘K</span>
+      </div>
+
+      <button class="atlas-add-yt" id="atlasAddYtBtn"
               onclick="toggleDownloadPanel()" aria-expanded="false"
-              aria-controls="downloadDrawer">↓ Download</button>
-    </div>
-  </header>
+              aria-controls="downloadDrawer">+ Add YouTube</button>
+    </header>
 
-  <!-- ── Download drawer (hidden by default) ──────────────────────── -->
+    <div class="atlas-rail" id="tuningRail" role="toolbar" aria-label="Filter by tuning"></div>
+
+    <div class="atlas-board" id="tileBoard" role="grid" aria-label="Library tiles"></div>
+
+    <div class="atlas-now" id="atlasNow" hidden>
+      <span class="atlas-now-dot" aria-hidden="true"></span>
+      <span id="atlasNowText"></span>
+      <span class="atlas-now-spacer"></span>
+      <span class="atlas-now-hints" aria-hidden="true">
+        <span><span class="kbd">⌘K</span> search</span>
+        <span><span class="kbd">↑↓←→</span> nav</span>
+        <span><span class="kbd">↵</span> open</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ════ ORBIT ════════════════════════════════════════════════════════ -->
+  <div id="orbitRoot" hidden>
+    <header class="orbit-header">
+      <button class="orbit-back" id="orbitBackBtn"
+              onclick="switchToAtlas()" aria-label="Back to library">‹</button>
+
+      <div class="orbit-titles">
+        <span class="orbit-eyebrow">Practice</span>
+        <h1 class="orbit-song-title" id="orbitTitle"></h1>
+        <div class="orbit-song-meta" id="orbitMeta"></div>
+      </div>
+
+      <div class="orbit-pills">
+        <span class="orbit-pill" id="orbitLoopedCount">— looped</span>
+        <span class="orbit-pill" id="orbitPracticedPill">practiced —</span>
+        <button class="orbit-pill notes-toggle" id="orbitNotesToggle"
+                onclick="OrbitView.toggleNotes()" aria-controls="notesPanel">📝 Notes</button>
+      </div>
+    </header>
+
+    <svg class="orbit-svg" id="orbitSvg" aria-label="Song timeline"></svg>
+    <div class="orbit-coachmark" id="orbitCoachmark" hidden></div>
+
+    <button class="orbit-play" id="orbitPlay" aria-label="Play/Pause"
+            onclick="OrbitView.togglePlay()">
+      <span class="play-icon" aria-hidden="true">▶</span>
+    </button>
+
+    <div class="now-looping" id="nowLoopingCard" hidden>
+      <div class="nl-eyebrow-row">
+        <span class="nl-color-square" id="nlColorSquare"></span>
+        <span class="nl-eyebrow">NOW LOOPING</span>
+        <span class="nl-time-fine" id="nlTimeFine">0:00.00</span>
+      </div>
+      <div class="nl-label" id="nlLabel">Segment 1</div>
+      <div class="nl-range" id="nlRange">0:00 → 0:00 · 0s</div>
+      <div class="nl-progress-track">
+        <div class="nl-progress-fill" id="nlProgress"></div>
+      </div>
+    </div>
+
+    <aside class="orbit-right">
+      <div class="or-video" id="orbitVideoWrap">
+        <video id="player" preload="metadata" playsinline></video>
+        <span class="or-video-chip-bl" id="orVideoChip" hidden>
+          <span class="seg-square" id="orVideoChipSquare"></span>
+          <span id="orVideoChipText">Segment</span>
+        </span>
+        <div class="or-video-chips-tr">
+          <span class="chip loop" id="orVideoLoopChip">LOOP off</span>
+          <span class="chip" id="orVideoReverbChip" title="Coming soon — backlog T3.4">reverb · off</span>
+        </div>
+        <button class="or-video-fs" id="fsBtn" onclick="toggleFullscreen()"
+                title="Fullscreen (F)" aria-label="Toggle fullscreen">⛶</button>
+      </div>
+
+      <div class="or-panel">
+        <div class="or-speed-row">
+          <span class="or-speed-readout" id="orSpeedReadout">1.00×</span>
+          <div class="or-speed-slider" id="orSpeedSlider">
+            <div class="or-speed-track"></div>
+            <!-- stops + thumb populated by orbit.js -->
+          </div>
+        </div>
+        <div class="or-transport">
+          <button class="tr-loop" id="orLoopBtn" onclick="toggleLoop()">⟳ Loop <kbd>L</kbd></button>
+          <button onclick="OrbitView.prevSegment()">← Prev</button>
+          <button onclick="OrbitView.nextSegment()">Next →</button>
+          <button aria-disabled="true" tabindex="-1"
+                  title="Coming soon — backlog T2.2">✓ Mark solid</button>
+        </div>
+      </div>
+
+      <div class="or-panel or-passages-panel">
+        <div class="or-passages" id="orPassages" role="list"></div>
+        <div class="or-reverb" id="orReverb" role="radiogroup" aria-label="Reverb preset">
+          <button class="reverb-cell selected" aria-disabled="true" tabindex="-1"
+                  data-preset="off" title="Coming soon — backlog T3.4">off</button>
+          <button class="reverb-cell" aria-disabled="true" tabindex="-1"
+                  data-preset="room" title="Coming soon — backlog T3.4">room</button>
+          <button class="reverb-cell" aria-disabled="true" tabindex="-1"
+                  data-preset="hall" title="Coming soon — backlog T3.4">hall</button>
+          <button class="reverb-cell" aria-disabled="true" tabindex="-1"
+                  data-preset="stadium" title="Coming soon — backlog T3.4">stadium</button>
+          <button class="reverb-cell" aria-disabled="true" tabindex="-1"
+                  data-preset="cathedral" title="Coming soon — backlog T3.4">cathedral</button>
+        </div>
+      </div>
+
+      <div class="or-shortcuts" aria-label="Keyboard shortcuts">
+        <span class="grp"><kbd>Space</kbd> play</span>
+        <span class="grp"><kbd>I</kbd><kbd>O</kbd> mark</span>
+        <span class="grp"><kbd>L</kbd> loop</span>
+        <span class="grp"><kbd>[</kbd><kbd>]</kbd> in/out</span>
+        <span class="grp"><kbd>←</kbd><kbd>→</kbd> 5s</span>
+        <span class="grp"><kbd>,</kbd><kbd>.</kbd> 0.1s</span>
+        <span class="grp"><kbd>-</kbd><kbd>=</kbd> speed</span>
+        <span class="grp"><kbd>F</kbd> fs</span>
+        <span class="grp"><kbd>Esc</kbd> back</span>
+      </div>
+    </aside>
+
+    <aside class="notes-panel" id="notesPanel" hidden aria-label="Video metadata and notes">
+      <div class="notes-panel-header">
+        <span>Video Notes</span>
+        <button class="notes-panel-close" onclick="OrbitView.toggleNotes()" aria-label="Close notes">×</button>
+      </div>
+      <div class="notes-field">
+        <label for="videoArtist">Artist</label>
+        <input type="text" id="videoArtist" class="video-artist"
+               maxlength="120" placeholder="Artist / band"
+               aria-label="Artist" autocomplete="off" />
+      </div>
+      <div class="notes-field">
+        <label id="videoTuningLabel">Tunings</label>
+        <div class="tag-row" id="videoTuningRow" data-scope="tuning"
+             aria-labelledby="videoTuningLabel"></div>
+      </div>
+      <div class="notes-field">
+        <label id="videoTagLabel">Tags</label>
+        <div class="tag-row" id="videoTagRow" data-scope="video"
+             aria-labelledby="videoTagLabel"></div>
+      </div>
+      <div class="notes-field">
+        <label for="videoNotes">Notes</label>
+        <textarea class="video-notes" id="videoNotes"
+                  placeholder="Key, overall observations…"
+                  maxlength="8000" aria-label="Video notes"></textarea>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ════ Download drawer (singleton, opened by Atlas pill) ═══════════ -->
   <div class="download-drawer" id="downloadDrawer" hidden>
     <div class="download-drawer-inner">
       <div class="url-bar">
         <input type="text" id="urlInput" placeholder="Paste a YouTube URL…" />
-        <button class="btn btn-primary" id="loadBtn" onclick="loadVideo()">LOAD</button>
+        <button class="btn-primary" id="loadBtn" onclick="loadVideo()">LOAD</button>
       </div>
       <input type="file" id="cookiesInput" accept=".txt" style="display:none"
              onchange="cookiesFileChosen(this)">
@@ -36,7 +197,7 @@
            onclick="document.getElementById('cookiesInput').click()"
            ondragover="cookiesDragOver(event)" ondragleave="cookiesDragLeave(event)"
            ondrop="cookiesDrop(event)">
-        <span class="cookies-icon">🍪</span>
+        <span class="cookies-icon" aria-hidden="true">🍪</span>
         <span class="cookies-text" id="cookiesText">No cookies.txt — click or drop file to enable downloads</span>
         <button class="cookies-remove" id="cookiesRemove" style="display:none"
                 onclick="event.stopPropagation(); removeCookies()" title="Remove cookies.txt">✕</button>
@@ -48,135 +209,12 @@
     </div>
   </div>
 
-  <!-- ── Body: sidebar + main ─────────────────────────────────────── -->
-  <div class="app-body">
+  <!-- Status toast + save dot -->
+  <div class="header-status" id="status"></div>
+  <div class="save-dot" id="saveDot" title="Saved"></div>
 
-    <aside class="sidebar">
-      <div class="sidebar-search">
-        <input type="text" id="librarySearch" placeholder="Search…"
-               aria-label="Search library" autocomplete="off" />
-      </div>
-
-      <div class="library-panel" id="libraryPanel" style="display:none">
-        <div class="library-header" id="libraryHeader" onclick="toggleLibrary()">
-          <span class="library-title">
-            Library
-            <span class="library-count" id="libraryCount">0</span>
-          </span>
-          <span class="library-chevron" id="libraryChevron">▼</span>
-        </div>
-        <div class="library-list" id="libraryList" style="display:none"></div>
-      </div>
-
-      <div class="coll-panel" id="collPanel" style="display:none">
-        <div class="coll-panel-header"><span>Filter Library</span></div>
-        <div class="coll-filter-row">
-          <span class="coll-filter-label">Tags:</span>
-          <div class="tag-row" id="filterTagRow"></div>
-        </div>
-        <div class="coll-match-row" id="collMatchRow"></div>
-        <div class="coll-list" id="collList"></div>
-      </div>
-    </aside>
-
-    <main class="main-area">
-
-      <div class="video-wrap" id="videoWrap">
-        <video id="player" preload="metadata"></video>
-        <button class="fs-overlay-btn" id="fsOverlayBtn"
-                onclick="toggleFullscreen()" title="Toggle fullscreen (F)">⛶</button>
-      </div>
-
-      <div class="panel" id="controlPanel" style="display:none">
-        <div class="timeline" id="timeline">
-          <div class="playhead" id="playhead" style="left:0"></div>
-        </div>
-        <div class="time-row">
-          <span id="tLeft">0:00</span>
-          <span id="tRight">0:00</span>
-        </div>
-        <div class="controls">
-          <span class="time-big" id="timeBig">0:00.0 / 0:00</span>
-          <span class="flex1"></span>
-          <button class="btn-in"  onclick="setIn()">SET IN &nbsp;<kbd>I</kbd></button>
-          <button class="btn-out" onclick="setOut()">SET OUT <kbd>O</kbd></button>
-          <button class="btn-loop" id="loopBtn" onclick="toggleLoop()">⟳ LOOP</button>
-          <button class="btn-fs" id="fsBtn" onclick="toggleFullscreen()">⛶ FULL <kbd>F</kbd></button>
-        </div>
-        <div class="speed-row">
-          <span class="speed-label">Speed <span id="speedValue" style="color:var(--accent);margin-left:4px">1.00×</span></span>
-          <button class="speed-btn" onclick="setSpeed(0.5)">0.5×</button>
-          <button class="speed-btn" onclick="setSpeed(0.6)">0.6×</button>
-          <button class="speed-btn" onclick="setSpeed(0.7)">0.7×</button>
-          <button class="speed-btn" onclick="setSpeed(0.8)">0.8×</button>
-          <button class="speed-btn" onclick="setSpeed(0.9)">0.9×</button>
-          <button class="speed-btn active" onclick="setSpeed(1)">1×</button>
-          <button class="speed-btn" onclick="setSpeed(1.25)">1.25×</button>
-        </div>
-        <div class="volume-row">
-          <button class="vol-mute-btn" id="volMuteBtn" onclick="toggleMute()"
-                  aria-label="Mute" title="Mute (M)">🔊</button>
-          <input type="range" class="vol-slider" id="volSlider"
-                 min="0" max="100" step="1" value="100"
-                 oninput="onVolSlider(this.value)"
-                 aria-label="Volume" />
-          <span class="vol-value" id="volValue">100%</span>
-        </div>
-        <div class="shortcuts">
-          <span><kbd>Space</kbd> play/pause</span>
-          <span><kbd>←</kbd> <kbd>→</kbd> ±5s</span>
-          <span><kbd>,</kbd> <kbd>.</kbd> ±0.1s</span>
-          <span><kbd>L</kbd> loop</span>
-          <span><kbd>F</kbd> fullscreen</span>
-          <span><kbd>-</kbd> <kbd>=</kbd> speed</span>
-          <span><kbd>0</kbd> reset speed</span>
-          <span><kbd>↑</kbd> <kbd>↓</kbd> volume</span>
-          <span><kbd>M</kbd> mute</span>
-          <span><kbd>D</kbd> download</span>
-        </div>
-      </div>
-
-      <div class="seg-panel" id="segPanel" style="display:none">
-        <div class="seg-panel-header">
-          <span style="display:flex;align-items:center;gap:8px">
-            Segments
-            <span class="save-dot" id="saveDot" title="Saved"></span>
-          </span>
-          <button class="btn-danger-ghost" onclick="clearAll()">Clear All</button>
-        </div>
-        <div id="segList">
-          <div class="seg-empty">No segments yet — press <kbd>I</kbd> then <kbd>O</kbd> to mark one.</div>
-        </div>
-      </div>
-
-      <div class="notes-panel" id="notesPanel" style="display:none">
-        <div class="notes-panel-header">Video Notes</div>
-        <div class="notes-field">
-          <label for="videoArtist">Artist</label>
-          <input type="text" id="videoArtist" class="video-artist"
-                 maxlength="120" placeholder="Artist / band"
-                 aria-label="Artist" autocomplete="off" />
-        </div>
-        <div class="notes-field">
-          <label id="videoTuningLabel">Tunings</label>
-          <div class="tag-row" id="videoTuningRow" data-scope="tuning"
-               aria-labelledby="videoTuningLabel"></div>
-        </div>
-        <div class="notes-field">
-          <label id="videoTagLabel">Tags</label>
-          <div class="tag-row" id="videoTagRow" data-scope="video"
-               aria-labelledby="videoTagLabel"></div>
-        </div>
-        <textarea class="video-notes" id="videoNotes"
-                  placeholder="Key, overall observations…"
-                  maxlength="8000" aria-label="Video notes"
-                  style="margin-top:8px"></textarea>
-      </div>
-
-    </main>
-  </div>
-
-</div>
-<script src="/app.js"></script>
+  <script src="/app.js"></script>
+  <script src="/views/atlas.js"></script>
+  <script src="/views/orbit.js"></script>
 </body>
 </html>
