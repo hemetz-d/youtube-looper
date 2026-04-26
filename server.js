@@ -43,6 +43,9 @@ function writeJSON(file, data) {
 const MAX_SEGMENT_LABEL_LEN = 80;
 const MAX_SEGMENT_NOTES_LEN = 2000;
 const MAX_VIDEO_NOTES_LEN   = 8000;
+const MAX_TITLE_LEN         = 200;
+const BPM_MIN               = 20;
+const BPM_MAX               = 300;
 const MAX_TAG_LEN           = 40;
 const MAX_TAGS_PER_RESOURCE = 20;
 const MAX_COLLECTION_NAME_LEN = 80;
@@ -111,9 +114,10 @@ function normalizeSegment(raw) {
 function normalizeLibraryEntry(raw) {
     if (!raw || typeof raw !== 'object') return null;
     if (typeof raw.id !== 'string' || typeof raw.file !== 'string') return null;
+    const rawTitle = typeof raw.title === 'string' ? raw.title.trim().slice(0, MAX_TITLE_LEN) : '';
     const entry = {
         id: raw.id,
-        title: typeof raw.title === 'string' ? raw.title : raw.id,
+        title: rawTitle || raw.id,
         file: raw.file,
         duration: Number.isFinite(raw.duration) ? raw.duration : null,
     };
@@ -124,6 +128,9 @@ function normalizeLibraryEntry(raw) {
     if (typeof raw.artist === 'string') {
         const artist = raw.artist.trim().slice(0, MAX_ARTIST_LEN);
         if (artist) entry.artist = artist;
+    }
+    if (Number.isFinite(raw.bpm) && raw.bpm >= BPM_MIN && raw.bpm <= BPM_MAX) {
+        entry.bpm = Math.round(raw.bpm);
     }
     let tags = normalizeTags(raw.tags);
     let tunings = normalizeStringList(raw.tunings, MAX_TUNINGS_PER_ENTRY, MAX_TUNING_LEN);
@@ -290,12 +297,29 @@ app.post('/library/:id', (req, res) => {
     const library = readJSON(LIBRARY_FILE, []);
     const idx = library.findIndex(v => v && v.id === id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'Not found' });
-    // Only `notes`, `tags`, `artist`, `tunings` are mutable here; id/file/title/duration stay put.
+    // Mutable here: notes, tags, artist, tunings, title, bpm. id/file/duration stay put.
     const merged = { ...library[idx] };
     if ('notes'   in req.body) merged.notes   = req.body.notes;
     if ('tags'    in req.body) merged.tags    = req.body.tags;
     if ('artist'  in req.body) merged.artist  = req.body.artist;
     if ('tunings' in req.body) merged.tunings = req.body.tunings;
+    if ('title'   in req.body) {
+        const t = String(req.body.title || '').trim().slice(0, MAX_TITLE_LEN);
+        if (!t) return res.status(400).json({ success: false, error: 'Title cannot be empty' });
+        merged.title = t;
+    }
+    if ('bpm' in req.body) {
+        const v = req.body.bpm;
+        if (v === null || v === '' || v === undefined) {
+            delete merged.bpm;
+        } else {
+            const n = Number(v);
+            if (!Number.isFinite(n) || n < BPM_MIN || n > BPM_MAX) {
+                return res.status(400).json({ success: false, error: `BPM must be ${BPM_MIN}–${BPM_MAX}` });
+            }
+            merged.bpm = Math.round(n);
+        }
+    }
     const normalized = normalizeLibraryEntry(merged);
     if (!normalized) return res.status(400).json({ success: false, error: 'Invalid entry' });
     library[idx] = normalized;

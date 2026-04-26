@@ -11,6 +11,8 @@ const VIEW_KEY        = 'yl-view';
 const SONG_KEY        = 'yl-song';
 const TUNING_FILTER_KEY = 'yl-tuning-filter';
 const TIME_KEY_PREFIX = 'yl-time-';
+const COUNTIN_KEY     = 'yl-countin-on';
+const COUNTIN_BPM     = 120;
 
 const TUNING_COLORS = {
   'drop d':       '#7c6fff',
@@ -36,7 +38,8 @@ let segments       = [];
 let pendingIn      = null;
 let looping        = false;
 let loopIdx        = 0;
-let currentVideoId = null;
+let currentVideoId = null;       // song open in Orbit (the practice target)
+let editingVideoId = null;       // song open in the Atlas edit panel (decoupled from practice)
 let currentSpeed   = 1;
 let saveTimer      = null;
 let libraryData    = [];
@@ -45,6 +48,8 @@ let allTunings     = [];
 let collections    = [];
 let activeFilter   = []; // legacy — kept so renderTagRow doesn't error; not exposed in U1 UI
 let segCounts      = {}; // {videoId: number} — populated lazily by Atlas
+let countInOn      = false;
+let audioCtx       = null;       // lazy AudioContext (autoplay-policy compliant)
 
 // View routing
 let currentView   = 'atlas';      // 'atlas' | 'orbit'
@@ -363,6 +368,72 @@ async function loadVideo() {
   });
 }
 
+// ── Count-in (Web Audio API metronome ticks before play) ─────────────────
+function getAudioCtx() {
+  if (!audioCtx) {
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return null;
+    audioCtx = new Ctor();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+// Schedule N metronome ticks via the Web Audio API. Returns a Promise that
+// resolves when the last tick has finished, so callers can await before play.
+function runCountIn(beats = 4, bpm = COUNTIN_BPM) {
+  const ctx = getAudioCtx();
+  if (!ctx) return Promise.resolve();
+  const interval = 60 / bpm;            // seconds between beats
+  const t0       = ctx.currentTime + 0.04;
+  for (let i = 0; i < beats; i++) {
+    const t = t0 + i * interval;
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = (i === beats - 1) ? 1320 : 880;  // emphasized last beat
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(i === beats - 1 ? 0.32 : 0.22, t + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.07);
+  }
+  const totalMs = (beats * interval + 0.04) * 1000;
+  return new Promise(resolve => setTimeout(resolve, totalMs));
+}
+
+// All paused→playing transitions go through here. Pass {countIn:true} to
+// honor the user's count-in toggle; pass nothing for automatic resumes
+// (drag-end, scrub-end) that shouldn't introduce delay.
+//
+// Count-in tempo: uses the current song's `bpm` if set on its library entry;
+// otherwise falls back to the COUNTIN_BPM default (120).
+function playVideo({ countIn = false } = {}) {
+  if (!video) return;
+  if (countIn && countInOn && video.paused) {
+    const entry = libraryData.find(v => v.id === currentVideoId);
+    const bpm   = Number.isFinite(entry?.bpm) ? entry.bpm : COUNTIN_BPM;
+    runCountIn(4, bpm).then(() => video.play().catch(() => {}));
+    return;
+  }
+  video.play().catch(() => {});
+}
+
+function toggleCountIn() {
+  countInOn = !countInOn;
+  localStorage.setItem(COUNTIN_KEY, countInOn ? '1' : '0');
+  refreshCountInBtn();
+  setStatus(countInOn ? 'Count-in on (4 ticks @ 120 BPM)' : 'Count-in off');
+}
+
+function refreshCountInBtn() {
+  const btn = document.getElementById('orCountInBtn');
+  if (!btn) return;
+  btn.classList.toggle('on', countInOn);
+  btn.setAttribute('aria-pressed', String(countInOn));
+}
+
 // ── Speed ─────────────────────────────────────────────────────────────────
 function setSpeed(s) {
   s = Math.round(Math.max(SPEED_MIN, Math.min(SPEED_MAX, s)) * 100) / 100;
@@ -431,7 +502,7 @@ function toggleLoop() {
   if (looping) {
     loopIdx = firstEnabled;
     video.currentTime = segments[firstEnabled].start;
-    video.play().catch(() => {});
+    playVideo({ countIn: true });
   }
   if (window.OrbitView) OrbitView.onLoopChange();
 }
@@ -440,7 +511,7 @@ function playSingle(i) {
   if (i < 0 || i >= segments.length) return;
   loopIdx = i;
   video.currentTime = segments[i].start;
-  video.play().catch(() => {});
+  playVideo({ countIn: true });
   if (window.OrbitView) OrbitView.refreshSegments();
 }
 
@@ -481,20 +552,21 @@ const MAX_TAG_LEN = 40, MAX_TAGS_PER_RESOURCE = 20;
 const MAX_TUNING_LEN = 40, MAX_TUNINGS_PER_ENTRY = 6;
 
 function getVideoTags() {
-  return libraryData.find(v => v.id === currentVideoId)?.tags ?? [];
+  return libraryData.find(v => v.id === editingVideoId)?.tags ?? [];
 }
 
 async function setVideoTags(tags) {
-  if (!currentVideoId) return;
-  const r = await fetch('/library/' + currentVideoId, {
+  if (!editingVideoId) return;
+  const r = await fetch('/library/' + editingVideoId, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tags })
   });
   if (!r.ok) { setStatus('❌ Failed to save tags'); return; }
   const updated = await r.json();
-  const entry = libraryData.find(v => v.id === currentVideoId);
+  const entry = libraryData.find(v => v.id === editingVideoId);
   if (entry) entry.tags = updated.tags;
   await loadAllTags();
+  if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
 }
 
 function renderTagRow(row) {
@@ -527,22 +599,26 @@ function renderTagRow(row) {
 }
 
 function getVideoTunings() {
-  return libraryData.find(v => v.id === currentVideoId)?.tunings ?? [];
+  return libraryData.find(v => v.id === editingVideoId)?.tunings ?? [];
 }
 
 async function setVideoTunings(tunings) {
-  if (!currentVideoId) return;
-  const r = await fetch('/library/' + currentVideoId, {
+  if (!editingVideoId) return;
+  const r = await fetch('/library/' + editingVideoId, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tunings })
   });
   if (!r.ok) { setStatus('❌ Failed to save tunings'); return; }
   const updated = await r.json();
-  const entry = libraryData.find(v => v.id === currentVideoId);
+  const entry = libraryData.find(v => v.id === editingVideoId);
   if (entry) entry.tunings = updated.tunings;
   await loadAllTunings();
-  // Tile color may have changed — rerender Atlas tiles next time it's shown.
-  if (window.OrbitView && currentView === 'orbit') OrbitView.refreshHeader();
+  // Tile color may have changed — rerender Atlas; if the edited song is also
+  // the one open in Orbit, refresh its header tuning chip too.
+  if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
+  if (editingVideoId === currentVideoId && window.OrbitView && currentView === 'orbit') {
+    OrbitView.refreshHeader();
+  }
 }
 
 function renderTuningRow(row) {
@@ -668,17 +744,22 @@ function onKeydown(e) {
     return;
   }
 
-  // Esc closes notes panel first; second Esc returns to Atlas.
-  if (e.key === 'Escape' && currentView === 'orbit') {
-    const notes = document.getElementById('notesPanel');
-    if (notes && !notes.hidden) {
+  // Esc handling: in Orbit, return to Atlas; in Atlas, close the edit panel
+  // if open (otherwise let the keystroke fall through harmlessly).
+  if (e.key === 'Escape') {
+    if (currentView === 'orbit') {
       e.preventDefault();
-      OrbitView.toggleNotes(false);
+      switchToAtlas();
       return;
     }
-    e.preventDefault();
-    switchToAtlas();
-    return;
+    if (currentView === 'atlas') {
+      const panel = document.getElementById('notesPanel');
+      if (panel && !panel.hidden && window.AtlasView) {
+        e.preventDefault();
+        AtlasView.closeEdit();
+        return;
+      }
+    }
   }
 
   // Suppress other shortcuts when typing in inputs/textareas.
@@ -696,7 +777,8 @@ function onKeydown(e) {
     case ' ':
       e.preventDefault();
       if (!video) break;
-      video.paused ? video.play().catch(() => {}) : video.pause();
+      if (video.paused) playVideo({ countIn: true });
+      else              video.pause();
       break;
     case 'ArrowLeft':
       e.preventDefault();
@@ -740,33 +822,90 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   initVolume();
 
-  // Wire video-level notes/artist persistence (Notes panel inputs).
+  // Wire video-level notes/artist persistence (Atlas edit panel inputs).
   const videoNotesEl  = document.getElementById('videoNotes');
   const videoArtistEl = document.getElementById('videoArtist');
   videoNotesEl.addEventListener('change', async () => {
-    if (!currentVideoId) return;
-    const r = await fetch('/library/' + currentVideoId, {
+    if (!editingVideoId) return;
+    const r = await fetch('/library/' + editingVideoId, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes: videoNotesEl.value })
     });
     if (!r.ok) { setStatus('❌ Failed to save video notes'); return; }
     const updated = await r.json();
-    const entry = libraryData.find(v => v.id === currentVideoId);
+    const entry = libraryData.find(v => v.id === editingVideoId);
     if (entry) entry.notes = updated.notes;
   });
   videoArtistEl.addEventListener('change', async () => {
-    if (!currentVideoId) return;
-    const r = await fetch('/library/' + currentVideoId, {
+    if (!editingVideoId) return;
+    const r = await fetch('/library/' + editingVideoId, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ artist: videoArtistEl.value })
     });
     if (!r.ok) { setStatus('❌ Failed to save artist'); return; }
     const updated = await r.json();
-    const entry = libraryData.find(v => v.id === currentVideoId);
+    const entry = libraryData.find(v => v.id === editingVideoId);
     if (entry) entry.artist = updated.artist;
-    if (window.OrbitView && currentView === 'orbit') OrbitView.refreshHeader();
+    if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
+    if (editingVideoId === currentVideoId && window.OrbitView && currentView === 'orbit') {
+      OrbitView.refreshHeader();
+    }
+  });
+
+  // Title — re-renders Atlas (tile title) and Orbit header if the edited song
+  // is currently open. Server rejects empty titles; revert UI if that happens.
+  const videoTitleEl = document.getElementById('videoTitle');
+  videoTitleEl.addEventListener('change', async () => {
+    if (!editingVideoId) return;
+    const r = await fetch('/library/' + editingVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: videoTitleEl.value })
+    });
+    if (!r.ok) {
+      setStatus('❌ Title cannot be empty');
+      const entry = libraryData.find(v => v.id === editingVideoId);
+      videoTitleEl.value = entry?.title ?? '';
+      return;
+    }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === editingVideoId);
+    if (entry) entry.title = updated.title;
+    if (currentView === 'atlas' && window.AtlasView) AtlasView.render();
+    if (editingVideoId === currentVideoId && window.OrbitView && currentView === 'orbit') {
+      OrbitView.refreshHeader();
+    }
+  });
+
+  // BPM — drives count-in tempo for this song if set; otherwise count-in
+  // falls back to the global default (120).
+  const videoBpmEl = document.getElementById('videoBpm');
+  videoBpmEl.addEventListener('change', async () => {
+    if (!editingVideoId) return;
+    const raw = videoBpmEl.value.trim();
+    const body = raw === '' ? { bpm: null } : { bpm: Number(raw) };
+    const r = await fetch('/library/' + editingVideoId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      setStatus('❌ BPM must be 20–300');
+      const entry = libraryData.find(v => v.id === editingVideoId);
+      videoBpmEl.value = entry?.bpm ?? '';
+      return;
+    }
+    const updated = await r.json();
+    const entry = libraryData.find(v => v.id === editingVideoId);
+    if (entry) {
+      if (Number.isFinite(updated.bpm)) entry.bpm = updated.bpm;
+      else                              delete entry.bpm;
+    }
+    setStatus(Number.isFinite(updated.bpm)
+      ? `Count-in: ${updated.bpm} BPM`
+      : 'BPM cleared — count-in falls back to 120');
   });
 
   // Persist playhead lifecycle.
@@ -797,8 +936,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadAllSegmentCounts();
   checkCookies();
 
-  // Initialize tuning filter from localStorage.
+  // Initialize tuning filter + count-in toggle from localStorage.
   tuningFilter = localStorage.getItem(TUNING_FILTER_KEY) || null;
+  countInOn    = localStorage.getItem(COUNTIN_KEY) === '1';
+  refreshCountInBtn();
 
   // Route to last view.
   const lastView = localStorage.getItem(VIEW_KEY) || 'atlas';

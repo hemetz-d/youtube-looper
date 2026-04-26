@@ -352,6 +352,41 @@ button { cursor: pointer; border: none; background: none; }
 }
 .tile-play:hover { filter: brightness(1.1); }
 
+/* Tile edit button — top-right corner, hover-revealed. Opens the Atlas side
+   panel for the song's artist / tunings / tags / notes (Orbit stays clean). */
+.tile-edit {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(10, 8, 16, 0.65);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s, transform 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.tile:hover .tile-edit,
+.tile:focus-within .tile-edit {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.tile-edit:hover {
+  color: var(--text);
+  background: rgba(10, 8, 16, 0.85);
+  border-color: var(--border-strong);
+}
+
 /* Tile responsive content visibility (set via inline classes from atlas.js) */
 .tile.level-min .tile-tuning-chip,
 .tile.level-min .tile-stats,
@@ -835,6 +870,11 @@ button { cursor: pointer; border: none; background: none; }
   border-color: rgba(251, 191, 36, 0.5);
   color: var(--accent-cta);
 }
+.or-transport .tr-countin.on {
+  background: rgba(124, 111, 255, 0.15);
+  border-color: rgba(124, 111, 255, 0.5);
+  color: #c9c2ff;
+}
 .or-transport button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
@@ -985,9 +1025,9 @@ button { cursor: pointer; border: none; background: none; }
 /* ── Notes side panel (Orbit) ────────────────────────────────────────────── */
 .notes-panel {
   position: absolute;
-  top: 90px;
+  top: 122px;
   right: 28px;
-  bottom: 28px;
+  bottom: 64px;
   width: 380px;
   background: rgba(10, 8, 16, 0.94);
   backdrop-filter: blur(20px);
@@ -1026,6 +1066,27 @@ button { cursor: pointer; border: none; background: none; }
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-mute);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.notes-field .field-hint {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-mute);
+  font-size: 10.5px;
+  font-style: italic;
+}
+.video-bpm {
+  width: 110px;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.video-bpm::-webkit-outer-spin-button,
+.video-bpm::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .video-artist {
   background: var(--surface);

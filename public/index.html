@@ -50,6 +50,52 @@
         <span><span class="kbd">↵</span> open</span>
       </span>
     </div>
+
+    <!-- Side panel for editing song metadata (artist / tunings / tags / notes).
+         Opens from the per-tile ✎ edit button. Atlas-only — Orbit is reserved
+         for the practice elements. -->
+    <aside class="notes-panel" id="notesPanel" hidden aria-label="Edit song metadata">
+      <div class="notes-panel-header">
+        <span id="notesPanelTitle">EDIT SONG</span>
+        <button class="notes-panel-close" onclick="AtlasView.closeEdit()" aria-label="Close">×</button>
+      </div>
+      <div class="notes-field">
+        <label for="videoTitle">Title</label>
+        <input type="text" id="videoTitle" class="video-artist"
+               maxlength="200" placeholder="Song title"
+               aria-label="Title" autocomplete="off" />
+      </div>
+      <div class="notes-field">
+        <label for="videoArtist">Artist</label>
+        <input type="text" id="videoArtist" class="video-artist"
+               maxlength="120" placeholder="Artist / band"
+               aria-label="Artist" autocomplete="off" />
+      </div>
+      <div class="notes-field">
+        <label for="videoBpm">BPM
+          <span class="field-hint">— count-in tempo if set</span>
+        </label>
+        <input type="number" id="videoBpm" class="video-artist video-bpm"
+               min="20" max="300" step="1" placeholder="e.g. 120"
+               aria-label="Beats per minute" autocomplete="off" inputmode="numeric" />
+      </div>
+      <div class="notes-field">
+        <label id="videoTuningLabel">Tunings</label>
+        <div class="tag-row" id="videoTuningRow" data-scope="tuning"
+             aria-labelledby="videoTuningLabel"></div>
+      </div>
+      <div class="notes-field">
+        <label id="videoTagLabel">Tags</label>
+        <div class="tag-row" id="videoTagRow" data-scope="video"
+             aria-labelledby="videoTagLabel"></div>
+      </div>
+      <div class="notes-field">
+        <label for="videoNotes">Notes</label>
+        <textarea class="video-notes" id="videoNotes"
+                  placeholder="Key, overall observations…"
+                  maxlength="8000" aria-label="Video notes"></textarea>
+      </div>
+    </aside>
   </div>
 
   <!-- ════ ORBIT ════════════════════════════════════════════════════════ -->
@@ -67,8 +113,6 @@
       <div class="orbit-pills">
         <span class="orbit-pill" id="orbitLoopedCount">— looped</span>
         <span class="orbit-pill" id="orbitPracticedPill">practiced —</span>
-        <button class="orbit-pill notes-toggle" id="orbitNotesToggle"
-                onclick="OrbitView.toggleNotes()" aria-controls="notesPanel">📝 Notes</button>
       </div>
     </header>
 
@@ -117,6 +161,8 @@
         </div>
         <div class="or-transport">
           <button class="tr-loop" id="orLoopBtn" onclick="toggleLoop()">⟳ Loop <kbd>L</kbd></button>
+          <button class="tr-countin" id="orCountInBtn" onclick="toggleCountIn()"
+                  aria-pressed="false" title="Play 4 metronome ticks before starting">♩ Count in</button>
           <button onclick="OrbitView.prevSegment()">← Prev</button>
           <button onclick="OrbitView.nextSegment()">Next →</button>
           <button aria-disabled="true" tabindex="-1"
@@ -150,35 +196,6 @@
         <span class="grp"><kbd>-</kbd><kbd>=</kbd> speed</span>
         <span class="grp"><kbd>F</kbd> fs</span>
         <span class="grp"><kbd>Esc</kbd> back</span>
-      </div>
-    </aside>
-
-    <aside class="notes-panel" id="notesPanel" hidden aria-label="Video metadata and notes">
-      <div class="notes-panel-header">
-        <span>Video Notes</span>
-        <button class="notes-panel-close" onclick="OrbitView.toggleNotes()" aria-label="Close notes">×</button>
-      </div>
-      <div class="notes-field">
-        <label for="videoArtist">Artist</label>
-        <input type="text" id="videoArtist" class="video-artist"
-               maxlength="120" placeholder="Artist / band"
-               aria-label="Artist" autocomplete="off" />
-      </div>
-      <div class="notes-field">
-        <label id="videoTuningLabel">Tunings</label>
-        <div class="tag-row" id="videoTuningRow" data-scope="tuning"
-             aria-labelledby="videoTuningLabel"></div>
-      </div>
-      <div class="notes-field">
-        <label id="videoTagLabel">Tags</label>
-        <div class="tag-row" id="videoTagRow" data-scope="video"
-             aria-labelledby="videoTagLabel"></div>
-      </div>
-      <div class="notes-field">
-        <label for="videoNotes">Notes</label>
-        <textarea class="video-notes" id="videoNotes"
-                  placeholder="Key, overall observations…"
-                  maxlength="8000" aria-label="Video notes"></textarea>
       </div>
     </aside>
   </div>

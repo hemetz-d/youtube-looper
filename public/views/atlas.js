@@ -202,6 +202,9 @@
             ${chip}
             ${stripHtml}
             ${stats}
+            <button class="tile-edit" data-edit-id="${escapeHtml(e.id)}"
+                    tabindex="-1" aria-label="Edit metadata"
+                    title="Edit artist / tunings / tags / notes">✎</button>
             <button class="tile-play" style="background:${c}" tabindex="-1" aria-label="Open">▶</button>
           </div>
         `);
@@ -212,7 +215,9 @@
     board.innerHTML = html.join('');
 
     board.querySelectorAll('.tile').forEach(el => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', e => {
+        // Edit button has its own handler; don't open Orbit on its clicks.
+        if (e.target.closest('.tile-edit')) return;
         const id = el.dataset.id;
         const idx = +el.dataset.flatIdx;
         highlightedIdx = idx;
@@ -225,6 +230,12 @@
       el.addEventListener('focus', () => {
         highlightedIdx = +el.dataset.flatIdx;
         applyHighlight();
+      });
+    });
+    board.querySelectorAll('.tile-edit').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        openEdit(btn.dataset.editId);
       });
     });
   }
@@ -320,5 +331,28 @@
     document.getElementById('atlasSearch')?.focus();
   }
 
-  window.AtlasView = { render, focusSearch, onKey };
+  // ── Edit panel (artist / tunings / tags / notes) ────────────────────────
+  function openEdit(id) {
+    const entry = libraryData.find(v => v.id === id);
+    if (!entry) return;
+    editingVideoId = id;
+    const panel = document.getElementById('notesPanel');
+    document.getElementById('notesPanelTitle').textContent = 'EDIT SONG';
+    document.getElementById('videoTitle').value  = entry.title  ?? '';
+    document.getElementById('videoArtist').value = entry.artist ?? '';
+    document.getElementById('videoBpm').value    = Number.isFinite(entry.bpm) ? entry.bpm : '';
+    document.getElementById('videoNotes').value  = entry.notes  ?? '';
+    renderTagRow(document.getElementById('videoTagRow'));
+    renderTuningRow(document.getElementById('videoTuningRow'));
+    panel.hidden = false;
+    panel.querySelector('input, textarea')?.focus();
+  }
+
+  function closeEdit() {
+    const panel = document.getElementById('notesPanel');
+    if (panel) panel.hidden = true;
+    editingVideoId = null;
+  }
+
+  window.AtlasView = { render, focusSearch, onKey, openEdit, closeEdit };
 })();

@@ -48,16 +48,10 @@
       refreshSegments();
     });
 
-    // Wire the Notes panel for this entry.
-    document.getElementById('videoNotes').value  = entry.notes  ?? '';
-    document.getElementById('videoArtist').value = entry.artist ?? '';
-    renderTagRow(document.getElementById('videoTagRow'));
-    renderTuningRow(document.getElementById('videoTuningRow'));
-    document.getElementById('notesPanel').hidden = true;
-
     // Render header even before segments arrive (title etc).
     refreshHeader();
     relayout();
+    refreshCountInBtn();
 
     // Hook playhead tick.
     window.onPlayheadTick = onTick;
@@ -174,6 +168,7 @@
 
     const tn = primaryTuning(entry);
     const c = tn ? tuningColor(tn) : DEFAULT_TUNING_COLOR;
+    const dur = entry.duration || (video?.duration && isFinite(video.duration) ? video.duration : 0);
 
     // Ambient radial wash in the tuning color so the empty side-space picks
     // up the song's signature instead of feeling like void. Very low opacity.
@@ -211,6 +206,23 @@
       fill: 'none', stroke: c, 'stroke-width': 1.5, opacity: 0.4,
     }));
 
+    // Always-on playthrough progress arc. Grows clockwise as the song plays.
+    // Empty Orbit: prominent (stroke 14, opacity 0.55) — it IS the visible
+    // ring. With segments: dimmed (stroke 6, opacity 0.22) — segments overlay
+    // it where they exist; in gaps you see "past" highlighted vs "future"
+    // showing only the thin track ring.
+    if (dur > 0) {
+      const empty = !segments.length;
+      svg.appendChild(createEl('path', {
+        id: 'playthroughArc',
+        d: arcPath(cx, cy, R2, 0, 0.5),
+        fill: 'none', stroke: c,
+        'stroke-width': empty ? 14 : 6,
+        'stroke-linecap': 'butt',
+        opacity:         empty ? 0.55 : 0.22,
+      }));
+    }
+
     // Click-to-seek band — invisible thick stroke at r=R2. Clicks on segment
     // arcs hit the arc (drawn after, on top); clicks in gaps hit this. Snaps
     // to t=0 within ~4° of 12 o'clock for easy "back to start" navigation.
@@ -233,7 +245,6 @@
     svg.appendChild(seekBand);
 
     // Tick marks
-    const dur = entry.duration || (video?.duration && isFinite(video.duration) ? video.duration : 0);
     if (dur > 0) {
       for (let t = 0; t <= dur; t += 30) {
         const angle = (t / dur) * 360;
@@ -359,17 +370,10 @@
     }));
     svg.appendChild(circle(cx, cy, 4, { fill: c }));
 
-    // Empty-state decoration (progress arc + eyebrow/duration/hint texts).
+    // Empty-state decoration (eyebrow / duration / hint texts). The
+    // playthrough arc is drawn unconditionally above (just dimmer when
+    // segments are present).
     if (!segments.length && dur > 0) {
-      // Progress arc — fills around the full ring as the song plays.
-      const progress = createEl('path', {
-        id: 'emptyProgressArc',
-        d: arcPath(cx, cy, R2, 0, 0.5),
-        fill: 'none', stroke: c, 'stroke-width': 14,
-        'stroke-linecap': 'butt', opacity: 0.55,
-      });
-      svg.appendChild(progress);
-
       // "PLAY THROUGH" eyebrow above the play button.
       svg.appendChild(text(cx, cy - 90, 'PLAY THROUGH', {
         'text-anchor': 'middle', 'dominant-baseline': 'middle',
@@ -456,6 +460,15 @@
     const ph = document.getElementById('orbitPlayhead');
     if (ph) ph.setAttribute('transform', `rotate(${angle} ${cx} ${cy})`);
 
+    // Always-on playthrough arc — grows clockwise as the song plays.
+    {
+      const arc = document.getElementById('playthroughArc');
+      if (arc && D > 0) {
+        const ang = Math.max(0.5, (t / D) * 360);
+        arc.setAttribute('d', arcPath(cx, cy, R2, 0, Math.min(359.9, ang)));
+      }
+    }
+
     // Now-Looping / Now-Playing card content.
     const card = document.getElementById('nowLoopingCard');
     const eyebrow = card?.querySelector('.nl-eyebrow');
@@ -495,12 +508,6 @@
         fill.style.width = pct + '%';
         fill.style.background = tnColor;
       }
-      // Grow progress arc around the ring.
-      const arc = document.getElementById('emptyProgressArc');
-      if (arc && D > 0) {
-        const ang = Math.max(0.5, (t / D) * 360);
-        arc.setAttribute('d', arcPath(cx, cy, R2, 0, Math.min(359.9, ang)));
-      }
     }
 
     // Video chip (bottom-left of video).
@@ -527,6 +534,26 @@
   }
 
   // ── Speed slider ──────────────────────────────────────────────────────
+  // The slider focuses on the practice-useful range. setSpeed itself still
+  // clamps to SPEED_MIN/SPEED_MAX, so keyboard `-`/`=` can still go beyond
+  // these bounds; the thumb just clamps visually to the slider edges in that
+  // case. SLIDER_INSET_PCT keeps the extreme stops off the very edges so the
+  // 0.5× and 1.25× dots have visual breathing room.
+  const SLIDER_SPEED_MIN = 0.5;
+  const SLIDER_SPEED_MAX = 1.25;
+  const SLIDER_INSET_PCT = 6;
+
+  function speedToPct(v) {
+    const clamped = Math.max(SLIDER_SPEED_MIN, Math.min(SLIDER_SPEED_MAX, v));
+    const t = (clamped - SLIDER_SPEED_MIN) / (SLIDER_SPEED_MAX - SLIDER_SPEED_MIN);
+    return SLIDER_INSET_PCT + t * (100 - 2 * SLIDER_INSET_PCT);
+  }
+  function pctToSpeed(pct) {
+    const t = (pct - SLIDER_INSET_PCT) / (100 - 2 * SLIDER_INSET_PCT);
+    const tClamped = Math.max(0, Math.min(1, t));
+    return SLIDER_SPEED_MIN + tClamped * (SLIDER_SPEED_MAX - SLIDER_SPEED_MIN);
+  }
+
   function renderSpeedSlider() {
     const slider = document.getElementById('orSpeedSlider');
     if (!slider) return;
@@ -538,7 +565,7 @@
     ];
     const innerHtml = ['<div class="or-speed-track"></div>'];
     for (const s of stops) {
-      const pct = ((s.v - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)) * 100;
+      const pct = speedToPct(s.v);
       innerHtml.push(`<div class="or-speed-stop" data-v="${s.v}" style="left:${pct}%; top:50%; transform:translate(-50%,-50%);" tabindex="0"></div>`);
       innerHtml.push(`<span class="or-speed-stop-label" style="left:${pct}%;">${s.label}</span>`);
     }
@@ -552,13 +579,14 @@
       });
     });
 
-    // Drag anywhere on the slider to set speed.
+    // Drag anywhere on the slider to set speed. Clicks within the inset
+    // border snap to the corresponding extreme (0.5× or 1.25×).
     let dragging = false;
     const apply = ev => {
       const rect = slider.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
-      const pct = x / rect.width;
-      const v = SPEED_MIN + pct * (SPEED_MAX - SPEED_MIN);
+      const pct = (x / rect.width) * 100;
+      const v = pctToSpeed(pct);
       setSpeed(Math.round(v * 20) / 20); // 0.05 increments
     };
     slider.addEventListener('mousedown', e => {
@@ -581,8 +609,7 @@
     stops.forEach(st => st.classList.toggle('active', Math.abs((+st.dataset.v) - s) < 0.001));
     const thumb = document.getElementById('orSpeedThumb');
     if (thumb) {
-      const pct = ((s - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)) * 100;
-      thumb.style.left = pct + '%';
+      thumb.style.left = speedToPct(s) + '%';
       thumb.style.top  = '50%';
       thumb.style.transform = 'translate(-50%, -50%)';
       thumb.style.display = 'block';
@@ -628,7 +655,7 @@
 
   function togglePlay() {
     if (!video) return;
-    if (video.paused) video.play().catch(() => {});
+    if (video.paused) playVideo({ countIn: true });
     else              video.pause();
   }
 
@@ -666,19 +693,10 @@
     });
   }
 
-  // ── Notes panel ────────────────────────────────────────────────────────
-  function toggleNotes(force) {
-    const panel = document.getElementById('notesPanel');
-    if (!panel) return;
-    const willOpen = (force === undefined) ? panel.hidden : !!force;
-    panel.hidden = !willOpen;
-    if (willOpen) panel.querySelector('input, textarea')?.focus();
-  }
-
   // ── Expose ────────────────────────────────────────────────────────────
   window.OrbitView = {
     open, relayout, refreshSegments, refreshHeader,
-    togglePlay, toggleNotes, prevSegment, nextSegment,
+    togglePlay, prevSegment, nextSegment,
     onSpeedChange, onLoopChange,
   };
 })();
